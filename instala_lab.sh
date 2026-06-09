@@ -196,8 +196,12 @@ su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_a
 echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal >/dev/null
 
-# 🛠️ CORREÇÃO E POLIMENTO DE PRIVILÉGIOS (ESTRUTURA DE GRÁFICOS DO FLOW MONITOR)
-echo "[*] Aplicando patches de segurança e tabelas complementares do Flow..."
+# 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes nativos na interface
+echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
+php /var/www/html/isp-client/backups/seed_backups.php
+
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR DE FÁBRICA
+echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF' | sudo -u postgres psql -d isp_client_portal >/dev/null
 -- Garante que as colunas active exigidas pelo código atual existam por padrão
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
@@ -205,41 +209,12 @@ ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT t
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
--- 📊 Injeção segura e qualificada sob o esquema public do módulo analítico Flow Monitor
-CREATE TABLE IF NOT EXISTS public.flow_graficos_customizados (
-    id SERIAL PRIMARY KEY,
-    nome VARCHAR(100) NOT NULL,
-    tipo VARCHAR(10) NOT NULL,
-    valor VARCHAR(100) NOT NULL,
-    direcao VARCHAR(10) DEFAULT 'ambos',
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.flow_historico_customizado (
-    id SERIAL PRIMARY KEY,
-    grafico_id INT REFERENCES public.flow_graficos_customizados(id) ON DELETE CASCADE,
-    mbps_in NUMERIC(10,2) DEFAULT 0,
-    mbps_out NUMERIC(10,2) DEFAULT 0,
-    timestamp TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_flow_hist_time ON public.flow_historico_customizado(timestamp);
-
--- Concede direitos totais para o usuário PHP manipular tabelas e sequencias de ID
+-- Concede direitos totais para o usuário PHP manipular tabelas e auto-incrementos (IDs)
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO isp_client_app;
-GRANT ALL PRIVILEGES ON public.flow_graficos_customizados TO isp_client_app;
-GRANT ALL PRIVILEGES ON public.flow_historico_customizado TO isp_client_app;
-GRANT ALL PRIVILEGES ON public.flow_graficos_customizados_id_seq TO isp_client_app;
-GRANT ALL PRIVILEGES ON public.flow_historico_customizado_id_seq TO isp_client_app;
-
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF
-
-# 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes nativos na interface
-echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
-php /var/www/html/isp-client/backups/seed_backups.php
 
 # 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO (Povoa usuários e a linha de configuração de backups ID=1)
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
@@ -333,7 +308,7 @@ NoNewPrivileges=no
 EOF
 systemctl daemon-reload
 
-# 🔄 CONFIGURAÇÃO DAS CRONS EM MODO DINÂMICO (INCLUÍDO CONSOLIDADOR DO FLOW)
+# 🔄 CONFIGURAÇÃO DAS CRONS EM MODO DINÂMICO (INCLUÍDO ADICIONAL DOS GRÁFICOS CUSTOMIZADOS)
 echo "[*] Configurando agendador de tarefas automatizadas minuto a minuto..."
 cat << 'XML' > /etc/cron.d/isp-client
 SHELL=/bin/bash
@@ -354,11 +329,6 @@ chmod 644 /etc/cron.d/isp-client
 rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
-# 🔒 BLINDAGEM DO ARQUIVO DE CONFIGURAÇÃO DE DESENVOLVIMENTO CONTRA RESETS DO GIT
-echo "[*] Blindando arquivo de credenciais local do LAB..."
-cd /var/www/html/isp-client
-git update-index --skip-worktree config/env.php || true
-
 # Inicializando serviços
 systemctl daemon-reload
 systemctl enable netflow-collector.service
@@ -371,5 +341,5 @@ echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081          "
 echo "===================================================="
 
-# O script se auto-destrói do servidor para não deixar lixo exposto
-rm -- "$0"
+# O script se auto-destrói do servidor usando o path absoluto fixo
+rm -f /tmp/instala_lab
