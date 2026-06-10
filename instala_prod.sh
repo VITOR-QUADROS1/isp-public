@@ -1,4 +1,5 @@
 #!/bin/bash
+# Impedir que o script continue se algum comando falhar
 set -e
 
 echo "===================================================="
@@ -7,7 +8,7 @@ echo "         (VERSÃO DE PRODUÇÃO - FULL DOCKER)         "
 echo "===================================================="
 echo ""
 
-echo "[*] Removendo instalações, processos e bancos anteriores..."
+echo "[*] Removendo instalações, processos e bancos de dados anteriores..."
 systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound postgresql || true
 pkill -9 php-fpm || true
 pkill -9 php || true
@@ -30,14 +31,16 @@ deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-fre
 deb-src http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
 EOF2
 
-echo "[*] Atualizando o sistema e instalando Docker e ferramentas NOC..."
+echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
+
+echo "[*] Instalando ferramentas de rede, motores nativos e Docker..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron sqlite3 docker.io docker-compose-v2
-echo "[*] Configurando chaves SSH locais..."
+
+echo "[*] Configurando chaves SSH locais com o GitHub..."
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 rm -f /root/.ssh/id_isp_client /root/.ssh/id_isp_client.pub /root/.ssh/config
 ssh-keygen -t ed25519 -f /root/.ssh/id_isp_client -N "" -q
-
 cat << 'EOF2' > /root/.ssh/config
 Host github.com
     HostName github.com
@@ -63,18 +66,19 @@ echo "[*] Gerando chaves de criptografia SSL para HTTPS..."
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/nginx/ssl/isp-client.key -out /etc/nginx/ssl/isp-client.crt -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp"
 
+echo "[*] Escrevendo arquivo de credenciais local..."
 mkdir -p /var/www/html/isp-client/config
-cat << EOF2 > /var/www/html/isp-client/config/env.php
+cat << 'EOF2' > /var/www/html/isp-client/config/env.php
 <?php
 declare(strict_types=1);
 define('DB_PASS', 'Union@2026!');
 define('SIRENE_APP_KEY', '$(openssl rand -hex 32)');
 EOF2
 chmod 644 /var/www/html/isp-client/config/env.php
-echo "[*] Configurando esqueleto modular do DNS Unbound RECURSIVO PURO..."
-mkdir -p /var/log/unbound && touch /var/log/unbound/unbound.log
-chown -R unbound:unbound /var/log/unbound && chmod 644 /var/log/unbound/unbound.log
 
+echo "[*] Configurando DNS Unbound RECURSIVO Nativo..."
+mkdir -p /var/log/unbound && touch /var/log/unbound/unbound.log
+chown -R unbound:unbound /var/log/unbound
 cat << 'EOF2' > /etc/unbound/unbound.conf
 include: /etc/unbound/unbound.conf.d/remote-control.conf
 server:
@@ -125,7 +129,8 @@ chmod 664 /etc/unbound/*.conf
 mkdir -p /var/lib/unbound && chown -R unbound:unbound /var/lib/unbound
 /usr/sbin/unbound-anchor -a /var/lib/unbound/root.key || unbound-anchor -a /var/lib/unbound/root.key || true
 aa-complain /usr/sbin/unbound || true
-echo "[*] IMPLANTANDO ECOSSISTEMA EM DOCKER (NGINX + PHP + POSTGRES)..."
+
+echo "[*] IMPLANTANDO ORQUESTRAÇÃO DOCKER FULL (WEB + POSTGRES) COM LIMITADORES..."
 mkdir -p /var/lib/postgresql/docker_data && chmod 700 /var/lib/postgresql/docker_data
 mkdir -p /opt/isp-web-docker && cd /opt/isp-web-docker
 
@@ -202,11 +207,12 @@ EOF2
 
 docker compose up -d --build
 sleep 6
-echo "[*] Importando estrutura e sementes para o banco conteinerizado..."
+
+echo "[*] Importando estrutura limpa para o banco do Docker..."
 docker exec -i isp-postgres psql -U isp_client_app -d isp_client_portal < /var/www/html/isp-client/backups/install.sql
 docker exec -i isp-web-php php /var/www/html/isp-client/backups/seed_backups.php || true
 
-echo "[*] Injetando usuarios administradores..."
+echo "[*] Injetando usuários administradores de fábrica..."
 HASH_MASTER="\$2y\$10\$X/D4d1oA9.k2/K5Uo4O6uexK7eTq9A2/C41QYqTq/y30Jp6eZ7T2a"
 docker exec -i isp-postgres psql -U isp_client_app -d isp_client_portal -c "INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;"
 docker exec -i isp-postgres psql -U isp_client_app -d isp_client_portal -c "INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;"
@@ -239,7 +245,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/var/www/html/isp-client/flow
-ExecStart=/usr/bin/docker exec isp-web-php php /var/www/html/isp-client/flow/collector.php
+ExecStart=/usr/bin/python3 -c "import os; os.system('docker exec -i isp-web-php php /var/www/html/isp-client/flow/collector.php')"
 Restart=always
 RestartSec=3
 [Install]
@@ -259,12 +265,12 @@ XML
 cat << 'XML' > /etc/cron.d/isp-client
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
-* * * * * root docker exec isp-web-php php /var/www/html/isp-client/mtr/monitoramento/cron/check_targets.php > /dev/null 2>&1
-*/5 * * * * root docker exec isp-web-php php /var/www/html/isp-client/mtr/advanced/cron/check_all.php > /dev/null 2>&1
-* * * * * root docker exec isp-web-php php /var/www/html/isp-client/backups/motor_backup.php > /dev/null 2>&1
-* * * * * root docker exec isp-web-php php /var/www/html/isp-client/flow/cron_flow.php > /dev/null 2>&1
-* * * * * root docker exec isp-web-php php /var/www/html/isp-client/flow/cron_consolidar.php > /dev/null 2>&1
-0 */4 * * * root docker exec isp-web-php php /var/www/html/isp-client/app/cron_license.php > /dev/null 2>&1
+* * * * * root docker exec -i isp-web-php php /var/www/html/isp-client/mtr/monitoramento/cron/check_targets.php > /dev/null 2>&1
+*/5 * * * * root docker exec -i isp-web-php php /var/www/html/isp-client/mtr/advanced/cron/check_all.php > /dev/null 2>&1
+* * * * * root docker exec -i isp-web-php php /var/www/html/isp-client/backups/motor_backup.php > /dev/null 2>&1
+* * * * * root docker exec -i isp-web-php php /var/www/html/isp-client/flow/cron_flow.php > /dev/null 2>&1
+* * * * * root docker exec -i isp-web-php php /var/www/html/isp-client/flow/cron_consolidar.php > /dev/null 2>&1
+0 */4 * * * root docker exec -i isp-web-php php /var/www/html/isp-client/app/cron_license.php > /dev/null 2>&1
 XML
 chmod 644 /etc/cron.d/isp-client
 
