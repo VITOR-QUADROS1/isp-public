@@ -8,8 +8,9 @@ echo "               (VERSÃO NATIVA ESTÁVEL)              "
 echo "===================================================="
 echo ""
 
+# 0. LIMPEZA ESTRUTURAL
 echo "[*] Removendo instalações e processos anteriores..."
-systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound || true
+systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound krill routinator || true
 pkill -9 php-fpm || true
 pkill -9 php || true
 
@@ -25,6 +26,7 @@ rm -rf /etc/systemd/system/php8.2-fpm.service.d/ || true
 rm -f /etc/systemd/system/netflow-collector.service /etc/systemd/system/dns-metrics-collector.service /etc/nginx/ssl/isp-client.* || true
 systemctl daemon-reload || true
 
+# 1. REPOSITÓRIOS
 echo "[*] Configurando repositórios oficiais do Debian 12 (Internet)..."
 cat << 'EOF2' > /etc/apt/sources.list
 deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
@@ -37,9 +39,18 @@ EOF2
 
 echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
-echo "[*] Instalando ferramentas de rede, recursivo, e-mail e linguagens..."
+
+echo "[*] Instalando dependências essenciais do sistema..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron nginx postgresql postgresql-contrib sqlite3 php8.2 php8.2-fpm php8.2-pgsql php8.2-sqlite3 php8.2-curl php8.2-mbstring php8.2-xml php8.2-zip php8.2-gd php8.2-intl php-ssh2 libphp-phpmailer wine xvfb x11vnc novnc fluxbox websockify
 
+# 2. INSTALAÇÃO RPKI (NLNET LABS)
+echo "[*] Adicionando repositório NLnet Labs e instalando Routinator e Krill..."
+curl -fsSL https://packages.nlnetlabs.nl/aptkey.asc | gpg --dearmor -o /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/nlnetlabs-archive-keyring.gpg] https://packages.nlnetlabs.nl/linux/debian bookworm main" > /etc/apt/sources.list.d/nlnetlabs.list
+apt-get update
+apt-get install -y routinator krill
+
+# 3. CHAVES SSH
 echo "[*] Configurando chaves SSH locais..."
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 rm -f /root/.ssh/id_isp_client /root/.ssh/id_isp_client.pub /root/.ssh/config
@@ -65,9 +76,10 @@ read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CON
 echo "[*] Baixando a build protegida do GitHub de forma segura..."
 mkdir -p /var/www/html
 git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git /var/www/html/isp-client
+
 echo "[*] Gerando chaves de criptografia SSL para HTTPS..."
 mkdir -p /etc/nginx/ssl
-openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/nginx/ssl/isp-client.key -out /etc/nginx/ssl/isp-client.crt -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp"
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/nginx/ssl/isp-client.key -out /etc/nginx/ssl/isp-client.crt -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp" 2>/dev/null
 
 echo "[*] Configurando Servidor Web Nginx para a porta 8081 (HTTPS)..."
 cat << 'XML' > /etc/nginx/sites-available/isp-client
@@ -98,8 +110,10 @@ rm -f /etc/nginx/sites-enabled/default || true
 echo "[*] Configurando banco de dados PostgreSQL..."
 su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\"" || true
 su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
+
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 php /var/www/html/isp-client/backups/seed_backups.php
+
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
@@ -128,7 +142,8 @@ define('DB_PASS', 'Union@2026!');
 define('SIRENE_APP_KEY', '$(openssl rand -hex 32)');
 EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php && chmod 640 /var/www/html/isp-client/config/env.php
-echo "[*] Configurando esqueleto modular do DNS Unbound RECURSIVO PURO..."
+
+echo "[*] Configurando DNS Unbound RECURSIVO PURO..."
 mkdir -p /var/log/unbound && touch /var/log/unbound/unbound.log
 chown -R unbound:unbound /var/log/unbound && chmod 644 /var/log/unbound/unbound.log
 cat << 'EOF2' > /etc/unbound/unbound.conf
@@ -216,6 +231,27 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF2
 
+echo "[*] Configurando daemons do RPKI (Routinator e Krill)..."
+cat << 'EOF2' > /etc/routinator/routinator.conf
+repository-dir = "/var/lib/routinator/repository"
+rtr-listen = ["0.0.0.0:3323"]
+http-listen = ["127.0.0.1:8323"]
+log-level = "info"
+EOF2
+chown -R routinator:routinator /var/lib/routinator /etc/routinator
+
+cat << 'EOF2' > /etc/krill.conf
+ip = "0.0.0.0"
+port = 3000
+auth_token = "d7kLj4HxFlgLIk4DxMgXLMU2GAdkIGVu"
+data_dir = "/var/lib/krill/data"
+log_type = "syslog"
+log_level = "info"
+EOF2
+mkdir -p /var/log/krill /var/lib/krill/data
+chown krill:krill /etc/krill.conf
+chown -R krill:krill /var/log/krill /var/lib/krill
+
 mkdir -p /home/flow_logs && chown -R www-data:www-data /home/flow_logs
 rm -rf /var/www/html/isp-client/flow/logs || true
 ln -s /home/flow_logs /var/www/html/isp-client/flow/logs
@@ -259,8 +295,9 @@ rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service
+systemctl enable netflow-collector.service dns-metrics-collector.service unbound routinator krill
+systemctl reset-failed krill || true
+systemctl restart unbound dns-metrics-collector.service netflow-collector.service routinator krill
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
