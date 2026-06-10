@@ -178,7 +178,7 @@ chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/
 chmod 664 /etc/unbound/*.conf
 
 mkdir -p /var/lib/unbound && chown -R unbound:unbound /var/lib/unbound
-unbound-anchor -a /var/lib/unbound/root.key || true
+/usr/sbin/unbound-anchor -a /var/lib/unbound/root.key || unbound-anchor -a /var/lib/unbound/root.key || true
 aa-complain /usr/sbin/unbound || true
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
