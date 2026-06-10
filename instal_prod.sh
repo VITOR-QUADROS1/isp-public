@@ -4,7 +4,7 @@ set -e
 
 echo "===================================================="
 echo "    INSTALADOR AUTOMATIZADO - VITOR-QUADROS ISP     "
-echo "               (AMBIENTE DE LAB)                 "
+echo "               (VERSÃO DE PRODUÇÃO)                 "
 echo "===================================================="
 echo ""
 
@@ -64,28 +64,7 @@ read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CON
 
 echo "[*] Baixando a build protegida do GitHub de forma segura..."
 mkdir -p /var/www/html
-git clone git@github.com:VITOR-QUADROS1/isp-client.git /var/www/html/isp-client
-cd /opt
-rm -rf PHP-Parser yakpro-po || true
-git clone https://github.com/nikic/PHP-Parser.git
-git clone https://github.com/pk-fr/yakpro-po.git
-cd yakpro-po
-git clone https://github.com/nikic/PHP-Parser.git
-chmod +x yakpro-po.php
-ln -sf /opt/yakpro-po/yakpro-po.php /usr/local/bin/yakpro-po
-cat << "YAKCONF" > /opt/yakpro-po/yakpro-po.cnf
-<?php
-$conf->source_directory = null;
-$conf->target_directory = null;
-$conf->obfuscate_constant_name = true;
-$conf->obfuscate_variable_name = true;
-$conf->obfuscate_function_name = true;
-$conf->obfuscate_class_name    = true;
-$conf->ignore_file_path_names  = array("/vendor");
-YAKCONF
-cd /var/www/html/
-git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git || true
-chmod +x /var/www/html/isp-client/deploy.sh || true
+git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git /var/www/html/isp-client
 echo "[*] Gerando chaves de criptografia SSL para HTTPS..."
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/nginx/ssl/isp-client.key -out /etc/nginx/ssl/isp-client.crt -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp"
