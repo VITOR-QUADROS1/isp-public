@@ -1,5 +1,4 @@
 #!/bin/bash
-# Impedir que o script continue se algum comando falhar
 set -e
 
 echo "===================================================="
@@ -8,20 +7,17 @@ echo "               (VERSÃO DE PRODUÇÃO)                 "
 echo "===================================================="
 echo ""
 
-# 0.1 LIMPEZA ESTRUTURAL COMPLETA BEFORE CLEAN DEPLOY
 echo "[*] Removendo instalações, processos e bancos de dados anteriores..."
 systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound || true
 pkill -9 php-fpm || true
 pkill -9 php || true
 
-# Derruba conexões presas no Postgres e limpa o banco e o usuário antigo
 if systemctl is-active --quiet postgresql; then
     su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" || true
     su - postgres -c "psql -c \"DROP DATABASE IF EXISTS isp_client_portal WITH (FORCE);\"" || true
     su - postgres -c "psql -c \"DROP USER IF EXISTS isp_client_app;\"" || true
 fi
 
-# Passa o rodo nas pastas, crons, chaves e arquivos antigos
 rm -rf /var/www/html/isp-client || true
 rm -f /etc/cron.d/isp-client || true
 rm -f /etc/sudoers.d/www-data-mtr || true
@@ -31,46 +27,35 @@ rm -f /etc/systemd/system/dns-metrics-collector.service || true
 rm -f /etc/nginx/ssl/isp-client.* || true
 systemctl daemon-reload || true
 
-# 0.2 Configurar Repositórios do Debian Minimal
 echo "[*] Configurando repositórios oficiais do Debian 12 (Internet)..."
 cat << 'EOF2' > /etc/apt/sources.list
 deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
 deb-src http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
-
 deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-
 deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
 deb-src http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
 EOF2
 
-# 1. Atualizar o Sistema com a nova lista de internet
 echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
 
-# 2. Instalar todas as dependências do sistema, redes, recursivo e e-mail
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron
 
-# 3. Instalar o Nginx e os Bancos de Dados
 echo "[*] Instalando Nginx, PostgreSQL e SQLite..."
 apt-get install -y nginx postgresql postgresql-contrib sqlite3
 
-# 4. Instalar o PHP 8.2 e todos os módulos necessários
 echo "[*] Instalando PHP 8.2 e extensões..."
 apt-get install -y php8.2 php8.2-fpm php8.2-pgsql php8.2-sqlite3 php8.2-curl php8.2-mbstring php8.2-xml php8.2-zip php8.2-gd php8.2-intl php-ssh2 libphp-phpmailer
 
-# 5. Instalar o ambiente gráfico Web para o Winbox (Wine e NoVNC)
 echo "[*] Instalando ambiente gráfico para Winbox via navegador..."
 apt-get install -y wine xvfb x11vnc novnc fluxbox websockify
 
-# 🚀 6. CONFIGURAÇÃO DA CHAVE SSH COM O GITHUB
 echo "[*] Configurando chaves SSH locais..."
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
-
 rm -f /root/.ssh/id_isp_client /root/.ssh/id_isp_client.pub /root/.ssh/config
-
 ssh-keygen -t ed25519 -f /root/.ssh/id_isp_client -N "" -q
 
 cat << 'EOF2' > /root/.ssh/config
@@ -87,38 +72,22 @@ echo "🔑 CHAVE DE LIBERAÇÃO DO SISTEMA (DEPLOY KEY)"
 echo "====================================================================="
 cat /root/.ssh/id_isp_client.pub
 echo "====================================================================="
-echo "👉 PASSO OBRIGATÓRIO:"
-echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
-echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT-PROD."
-echo "====================================================================="
 echo ""
-
 read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CONFIRMACAO
-if [ "$CONFIRMACAO" != "OK" ] && [ "$CONFIRMACAO" != "ok" ]; then
-    echo "❌ Instalação cancelada pelo usuário."
-    exit 1
-fi
 
-# Baixando o código protegido via SSH direto da branch blindada de produção
 echo "[*] Baixando a build protegida do GitHub de forma segura..."
 mkdir -p /var/www/html
 git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git /var/www/html/isp-client
 
-# 🔐 Gerar Certificado SSL Autoassinado para HTTPS (Válido por 10 anos)
 echo "[*] Gerando chaves de criptografia SSL para HTTPS..."
 mkdir -p /etc/nginx/ssl
-openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-  -keyout /etc/nginx/ssl/isp-client.key \
-  -out /etc/nginx/ssl/isp-client.crt \
-  -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp"
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/nginx/ssl/isp-client.key -out /etc/nginx/ssl/isp-client.crt -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp"
 
-# Configurar Servidor Web Nginx (HTTPS) na Porta 8081
 echo "[*] Configurando Servidor Web Nginx para a porta 8081 (HTTPS)..."
 cat << 'XML' > /etc/nginx/sites-available/isp-client
 server {
     listen 8081 ssl default_server;
     listen [::]:8081 ssl default_server;
-
     server_name _;
     root /var/www/html/isp-client;
     index login.php index.php index.html;
@@ -127,69 +96,45 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
+    location / { try_files $uri $uri/ /index.php?$query_string; }
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/php8.2-fpm.sock;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;
     }
-    location ~ /\.ht {
-        deny all;
-    }
+    location ~ /\.ht { deny all; }
 }
 XML
-
 ln -sf /etc/nginx/sites-available/isp-client /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default || true
 
-# Configuração do Banco de Dados PostgreSQL
 echo "[*] Configurando banco de dados PostgreSQL..."
 su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\"" || true
 su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
-
-# Importa o arquivo de estrutura limpa atualizado com as novas tabelas DNS
-echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
-
-# 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes nativos na interface
-echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR DE FÁBRICA
-echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
+echo "[*] Aplicando patches de segurança e permissões..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
-
--- Concede direitos totais para o usuário PHP manipular tabelas e auto-incrementos (IDs)
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO
-echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
+echo "[*] Injetando usuários administradores..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
-INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at)
-VALUES
-('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()),
-('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW())
-ON CONFLICT (username) DO NOTHING;
-
-INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes)
-VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10)
-ON CONFLICT (id) DO NOTHING;
+INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;
+INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;
 EOF2
 
-# Criar arquivo de credenciais local
 echo "[*] Escrevendo arquivo de credenciais local..."
 mkdir -p /var/www/html/isp-client/config
 cat << EOF2 > /var/www/html/isp-client/config/env.php
@@ -201,16 +146,12 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# ====================================================================
-# 🌐 CONFIGURAÇÃO RECURSIVA PURA AUTO-DINÂMICA DO UNBOUND
-# ====================================================================
-echo "[*] Configurando esqueleto modular do DNS Unbound Recursivo..."
+echo "[*] Configurando esqueleto modular do DNS Unbound RECURSIVO PURO..."
 mkdir -p /var/log/unbound
 touch /var/log/unbound/unbound.log
 chown -R unbound:unbound /var/log/unbound
 chmod 644 /var/log/unbound/unbound.log
 
-# Escreve o arquivo mestre do Unbound
 cat << 'EOF2' > /etc/unbound/unbound.conf
 include: /etc/unbound/unbound.conf.d/remote-control.conf
 server:
@@ -246,7 +187,6 @@ extended-statistics: yes
 statistics-cumulative: no
 EOF2
 
-# Inicializa as ACLs dinâmicas cobrindo todas as faixas privadas do provedor (Auto-Dinâmico)
 cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
@@ -259,16 +199,16 @@ touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf
 chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf
 chmod 664 /etc/unbound/*.conf
 
-# Inicializa as chaves criptográficas DNSSEC dos Root Servers da Internet
 mkdir -p /var/lib/unbound
 chown -R unbound:unbound /var/lib/unbound
 sudo -u unbound unbound-anchor -a /var/lib/unbound/root.key || true
-
-# Desativa travas do kernel e concede reloading suave para o PHP
 aa-complain /usr/sbin/unbound || true
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
-# Configura ambiente Python NOC
+# 🌐 AUTO-RESOLUÇÃO: Aponta o DNS da própria máquina para ela mesma consultar direto na raiz
+rm -f /etc/resolv.conf
+echo "nameserver 127.0.0.1" > /etc/resolv.conf
+
 mkdir -p /var/www/html/isp-client/ferramentas/dns
 python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip
@@ -278,25 +218,20 @@ cat << 'EOF2' > /etc/systemd/system/dns-metrics-collector.service
 [Unit]
 Description=VisaoSoft DNS Metrics Daemon Collector
 After=network.target unbound.service postgresql.service
-
 [Service]
 Type=simple
 WorkingDirectory=/var/www/html/isp-client/ferramentas/dns
 ExecStart=/var/www/html/isp-client/ferramentas/dns/venv-dns/bin/python /var/www/html/isp-client/ferramentas/dns/dns_metrics_collector.py
 Restart=always
 User=root
-
 [Install]
 WantedBy=multi-user.target
 EOF2
-# ====================================================================
 
-# Implantação de Serviço NetFlow
 cat << 'EOF2' > /etc/systemd/system/netflow-collector.service
 [Unit]
 Description=NetFlow Collector Service - VisaoSoft ISP
 After=network.target postgresql.service
-
 [Service]
 Type=simple
 User=www-data
@@ -305,7 +240,6 @@ WorkingDirectory=/var/www/html/isp-client/flow
 ExecStart=/usr/bin/php /var/www/html/isp-client/flow/collector.php
 Restart=always
 RestartSec=3
-
 [Install]
 WantedBy=multi-user.target
 EOF2
@@ -316,14 +250,7 @@ rm -rf /var/www/html/isp-client/flow/logs || true
 ln -s /home/flow_logs /var/www/html/isp-client/flow/logs
 
 cat << 'XML' > /etc/logrotate.d/isp-flow
-/home/flow_logs/*.log {
-      size 1G
-      rotate 3
-      compress
-      missingok
-      notifempty
-      copytruncate
-}
+/home/flow_logs/*.log { size 1G rotate 3 compress missingok notifempty copytruncate }
 XML
 
 mkdir -p /var/www/html/isp-client/flow/data
@@ -335,9 +262,6 @@ chmod -R 775 /var/www/html/isp-client/flow/data
 
 chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
-chmod -s /usr/bin/mtr || true
-chmod -s /usr/libexec/mtr-packet 2>/dev/null || true
-chmod -s /usr/lib/mtr/mtr-packet 2>/dev/null || true
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/mtr" > /etc/sudoers.d/www-data-mtr
 chmod 440 /etc/sudoers.d/www-data-mtr
 
@@ -346,7 +270,6 @@ cat << 'EOF2' > /etc/systemd/system/php8.2-fpm.service.d/override.conf
 [Service]
 NoNewPrivileges=no
 EOF2
-systemctl daemon-reload
 
 cat << 'XML' > /etc/cron.d/isp-client
 SHELL=/bin/bash
