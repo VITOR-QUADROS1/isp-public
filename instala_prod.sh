@@ -8,14 +8,10 @@ echo "               (VERSÃO NATIVA ESTÁVEL)              "
 echo "===================================================="
 echo ""
 
-echo "[*] Removendo instalações, processos e bancos anteriores..."
-systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound postgresql || true
+echo "[*] Removendo instalações e bancos anteriores..."
+systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound || true
 pkill -9 php-fpm || true
 pkill -9 php || true
-if command -v docker &>/dev/null; then
-    cd /opt/isp-web-docker && docker compose down || true
-    rm -rf /opt/isp-web-docker /var/lib/postgresql/docker_data || true
-fi
 
 if systemctl is-active --quiet postgresql; then
     su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" || true
@@ -117,10 +113,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_a
 EOF2
 
 echo "[*] Injetando usuários administradores..."
-HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
-HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
+HASH_MASTER=\$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
+HASH_CLIENTE=\$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
 cat << EOF2 | sudo -u postgres psql -d isp_client_portal
-INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;
+INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '\$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '\$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;
 INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;
 EOF2
 
