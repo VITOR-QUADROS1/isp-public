@@ -225,11 +225,12 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF2
-
+echo "[*] Criando servico nativo do Systemd para o Coletor NetFlow..."
 cat << 'EOF2' > /etc/systemd/system/netflow-collector.service
 [Unit]
 Description=NetFlow Collector Service - VisaoSoft ISP
 After=network.target postgresql.service
+
 [Service]
 Type=simple
 User=www-data
@@ -238,10 +239,10 @@ WorkingDirectory=/var/www/html/isp-client/flow
 ExecStart=/usr/bin/php /var/www/html/isp-client/flow/collector.php
 Restart=always
 RestartSec=3
+
 [Install]
 WantedBy=multi-user.target
 EOF2
-
 mkdir -p /home/flow_logs && chown -R www-data:www-data /home/flow_logs
 rm -rf /var/www/html/isp-client/flow/logs || true
 ln -s /home/flow_logs /var/www/html/isp-client/flow/logs
@@ -256,7 +257,6 @@ echo "{}" > /var/www/html/isp-client/flow/data/stats.json
 rm -f /var/www/html/isp-client/flow/data/templates.json || true
 chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
-
 chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/mtr" > /etc/sudoers.d/www-data-mtr
@@ -281,7 +281,6 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 0 3 * * * root /usr/bin/systemctl restart netflow-collector.service > /dev/null 2>&1
 XML
 chmod 644 /etc/cron.d/isp-client
-
 rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
@@ -292,7 +291,7 @@ systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
 echo "===================================================="
-echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
+echo "        INSTALACAO CONCLUIDA COM SUCESSO!"
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 rm -- "$0"
