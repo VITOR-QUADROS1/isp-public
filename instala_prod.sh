@@ -151,6 +151,7 @@ statistics-interval: 0
 extended-statistics: yes
 statistics-cumulative: no
 EOF2
+
 cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
@@ -169,7 +170,6 @@ echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/su
 
 rm -f /etc/resolv.conf
 echo "nameserver 127.0.0.1" > /etc/resolv.conf
-
 mkdir -p /var/www/html/isp-client/ferramentas/dns
 python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip
@@ -204,7 +204,6 @@ RestartSec=3
 [Install]
 WantedBy=multi-user.target
 EOF2
-
 mkdir -p /home/flow_logs && chown -R www-data:www-data /home/flow_logs
 rm -rf /var/www/html/isp-client/flow/logs || true
 ln -s /home/flow_logs /var/www/html/isp-client/flow/logs
@@ -254,7 +253,7 @@ systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
 echo "===================================================="
-echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
+echo "        INSTAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 rm -- "$0"
