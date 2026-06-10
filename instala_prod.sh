@@ -1,5 +1,4 @@
 #!/bin/bash
-# Impedir que o script continue se algum comando falhar
 set -e
 
 echo "===================================================="
@@ -37,6 +36,7 @@ EOF2
 
 echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
+
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron nginx postgresql postgresql-contrib sqlite3 php8.2 php8.2-fpm php8.2-pgsql php8.2-sqlite3 php8.2-curl php8.2-mbstring php8.2-xml php8.2-zip php8.2-gd php8.2-intl php-ssh2 libphp-phpmailer wine xvfb x11vnc novnc fluxbox websockify
 
@@ -65,6 +65,7 @@ read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CON
 echo "[*] Baixando a build protegida do GitHub de forma segura..."
 mkdir -p /var/www/html
 git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git /var/www/html/isp-client
+
 echo "[*] Gerando chaves de criptografia SSL para HTTPS..."
 mkdir -p /etc/nginx/ssl
 openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/nginx/ssl/isp-client.key -out /etc/nginx/ssl/isp-client.crt -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp"
@@ -100,6 +101,7 @@ su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026
 su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 php /var/www/html/isp-client/backups/seed_backups.php
+
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
@@ -166,6 +168,7 @@ statistics-interval: 0
 extended-statistics: yes
 statistics-cumulative: no
 EOF2
+
 cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
@@ -179,12 +182,9 @@ chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/
 chmod 664 /etc/unbound/*.conf
 
 mkdir -p /var/lib/unbound && chown -R unbound:unbound /var/lib/unbound
-sudo -u unbound unbound-anchor -a /var/lib/unbound/root.key || true
+/usr/sbin/unbound-anchor -a /var/lib/unbound/root.key || true
 aa-complain /usr/sbin/unbound || true
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
-
-rm -f /etc/resolv.conf
-echo "nameserver 127.0.0.1" > /etc/resolv.conf
 
 mkdir -p /var/www/html/isp-client/ferramentas/dns
 python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
@@ -204,12 +204,11 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF2
-echo "[*] Criando servico nativo do Systemd para o Coletor NetFlow..."
+
 cat << 'EOF2' > /etc/systemd/system/netflow-collector.service
 [Unit]
 Description=NetFlow Collector Service - VisaoSoft ISP
 After=network.target postgresql.service
-
 [Service]
 Type=simple
 User=www-data
@@ -218,10 +217,10 @@ WorkingDirectory=/var/www/html/isp-client/flow
 ExecStart=/usr/bin/php /var/www/html/isp-client/flow/collector.php
 Restart=always
 RestartSec=3
-
 [Install]
 WantedBy=multi-user.target
 EOF2
+
 mkdir -p /home/flow_logs && chown -R www-data:www-data /home/flow_logs
 rm -rf /var/www/html/isp-client/flow/logs || true
 ln -s /home/flow_logs /var/www/html/isp-client/flow/logs
@@ -236,6 +235,7 @@ echo "{}" > /var/www/html/isp-client/flow/data/stats.json
 rm -f /var/www/html/isp-client/flow/data/templates.json || true
 chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
+
 chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/mtr" > /etc/sudoers.d/www-data-mtr
@@ -246,7 +246,6 @@ cat << 'EOF2' > /etc/systemd/system/php8.2-fpm.service.d/override.conf
 [Service]
 NoNewPrivileges=no
 EOF2
-systemctl daemon-reload
 
 cat << 'XML' > /etc/cron.d/isp-client
 SHELL=/bin/bash
@@ -260,6 +259,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 0 3 * * * root /usr/bin/systemctl restart netflow-collector.service > /dev/null 2>&1
 XML
 chmod 644 /etc/cron.d/isp-client
+
 rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
@@ -269,8 +269,12 @@ systemctl restart unbound dns-metrics-collector.service netflow-collector.servic
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
+# Ajuste fino: Altera o DNS do sistema para ele mesmo apenas no final, após validar o Unbound ativo
+rm -f /etc/resolv.conf
+echo "nameserver 127.0.0.1" > /etc/resolv.conf
+
 echo "===================================================="
-echo "        INSTALACAO CONCLUIDA COM SUCESSO!"
+echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 rm -- "$0"
