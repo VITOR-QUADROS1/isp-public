@@ -4,7 +4,7 @@ set -e
 
 echo "===================================================="
 echo "    INSTALADOR AUTOMATIZADO - VITOR-QUADROS ISP     "
-echo "               (VERSÃO DE PRODUÇÃO)                 "
+echo "             (VERSÃO SEM CRIPTO / LAB)              "
 echo "===================================================="
 echo ""
 
@@ -89,7 +89,7 @@ cat /root/.ssh/id_isp_client.pub
 echo "====================================================================="
 echo "👉 PASSO OBRIGATÓRIO:"
 echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
-echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT-PROD."
+echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT."
 echo "====================================================================="
 echo ""
 
@@ -99,8 +99,8 @@ if [ "$CONFIRMACAO" != "OK" ] && [ "$CONFIRMACAO" != "ok" ]; then
     exit 1
 fi
 
-# Baixando o código protegido via SSH direto da branch blindada de produção
-echo "[*] Baixando a build protegida do GitHub de forma segura..."
+# Baixando o código via SSH direto da branch de laboratório
+echo "[*] Baixando a build do GitHub de forma segura..."
 mkdir -p /var/www/html
 git clone git@github.com:VITOR-QUADROS1/isp-client.git /var/www/html/isp-client
 
@@ -150,35 +150,35 @@ echo "[*] Configurando banco de dados PostgreSQL..."
 su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\"" || true
 su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
 
-# Importa o arquivo de estrutura limpa atualizado com as novas tabelas DNS
+# Importa o arquivo de estrutura limpa
 echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 
-# 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes nativos na interface
+# 🔥 SEED AUTOMÁTICO: Popula os scripts e fabricantes
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR DE FÁBRICA
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
--- Garante que as colunas active exigidas pelo código atual existam por padrão
+-- Garante que as colunas active exigidas pelo código existam por padrão
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
--- Concede direitos totais para o usuário PHP manipular tabelas e auto-incrementos (IDs)
+-- Concede direitos totais para o usuário PHP manipular tabelas e sequências
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO (Povoa usuários e a linha de configuração de backups ID=1)
+# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO CORRIGIDA (Removido aspas do EOF2 para gerar hashes reais)
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
-cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
+cat << EOF2 | sudo -u postgres psql -d isp_client_portal
 INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at)
 VALUES
 ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()),
@@ -203,7 +203,7 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA (COM PATCH DE BYPASS DE TABELAS AUSENTES)
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA (COM PATCH DE BYPASS)
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
@@ -432,4 +432,3 @@ echo "===================================================="
 
 # O script se auto-destrói do servidor do cliente para não deixar lixo exposto
 rm -- "$0"
-EOF

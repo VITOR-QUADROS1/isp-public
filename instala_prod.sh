@@ -174,11 +174,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO (Povoa usuários e a linha de configuração de backups ID=1)
+# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO CORRIGIDA (Removido aspas do EOF2 para gerar hashes reais)
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
-cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
+cat << EOF2 | sudo -u postgres psql -d isp_client_portal
 INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at)
 VALUES
 ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()),
@@ -426,10 +426,9 @@ systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
 echo "===================================================="
-echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
+echo "        INSTAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 
 # O script se auto-destrói do servidor do cliente para não deixar lixo exposto
 rm -- "$0"
-EOF
