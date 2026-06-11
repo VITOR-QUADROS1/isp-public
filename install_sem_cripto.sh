@@ -205,7 +205,7 @@ systemctl restart postgresql
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR (FIXED: Redirecionamento SQL mestre corrigido)
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR (FIXED: Correção do descriptor SQL de Lab)
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código existam por padrão
@@ -310,7 +310,7 @@ CLIENTS_CONF
 
 chown -R freerad:freerad /etc/freeradius/3.0/
 
-# Ativa estritamente o módulo SQL isolado no fluxo do FreeRADIUS (Sem quebrar o sqlippool)
+# Ativa estritamente o módulo SQL isolado no fluxo do FreeRADIUS
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
@@ -330,9 +330,9 @@ cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
         update reply {
             Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
         }
-        # CORREÇÃO SINTAXE: Executa a injeção via bloco de controle local legítimo do Unlang
-        update control {
-            &Tmp-String-0 := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
+        # 🎯 CORREÇÃO DEFINITIVA: Injeta via avaliação de string condicional pura, blindando o boot do FreeRADIUS
+        if ("%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}" == "") {
+            reject
         }
         reject
     }
@@ -399,7 +399,6 @@ chmod 664 /etc/unbound/*.conf
 
 aa-complain /usr/sbin/unbound || true
 
-# Validação segura das chaves raiz do Unbound
 if [ -x /usr/sbin/unbound-anchor ]; then
     /usr/sbin/unbound-anchor || true
 fi
@@ -427,6 +426,31 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF2
+# ====================================================================
+
+# ====================================================================
+# 🛡️ ESQUELETO OPERACIONAL DE SINALIZAÇÃO DO ENTORNO RPKI (NLNET LABS)
+# ====================================================================
+echo "[*] Configurando daemons modulares do RPKI (Routinator e Krill)..."
+cat << 'EOF2' > /etc/routinator/routinator.conf
+repository-dir = "/var/lib/routinator/repository"
+rtr-listen = ["0.0.0.0:3323"]
+http-listen = ["127.0.0.1:8323"]
+log-level = "info"
+EOF2
+chown -R routinator:routinator /var/lib/routinator /etc/routinator
+
+cat << 'EOF2' > /etc/krill.conf
+ip = "0.0.0.0"
+port = 3000
+auth_token = "d7kLj4HxFlgLIk4DxMgXLMU2GAdkIGVu"
+data_dir = "/var/lib/krill/data"
+log_type = "syslog"
+log_level = "info"
+EOF2
+mkdir -p /var/log/krill /var/lib/krill/data
+chown krill:krill /etc/krill.conf
+chown -R krill:krill /var/log/krill /var/lib/krill
 # ====================================================================
 
 # Implantação de Serviço Nativo do Coletor NetFlow (Híbrido v5/v9)

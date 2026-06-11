@@ -48,7 +48,7 @@ EOF2
 echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
 
-# 2. Instalar todas as dependências do systema, redes, recursivo, e-mail e freeradius
+# 2. Instalar todas as dependências do sistema, redes, recursivo, e-mail e freeradius
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron freeradius freeradius-postgresql
 
@@ -252,7 +252,7 @@ sql {
 RADIUS_CONF
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
 
-# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf limpo contendo estritamente o localhost de fábrica
+# 🎯 BLINDAGEM PORTÁTIL: clients.conf limpo contendo estritamente o localhost de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
 client localhost {
     ipaddr = 127.0.0.1
@@ -269,7 +269,7 @@ CLIENTS_CONF
 
 chown -R freerad:freerad /etc/freeradius/3.0/
 
-# Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS (Sem quebrar o sqlippool)
+# Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
@@ -280,7 +280,7 @@ sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply
 sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
 # ====================================================================
-# 🔥 POLÍTICA DE BRUTE FORCE MESTRE CORRIGIDA: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
+# 🔥 POLÍTICA DE BRUTE FORCE BLINDADA: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
 # ====================================================================
 echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
 cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
@@ -289,9 +289,9 @@ cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
         update reply {
             Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
         }
-        # CORREÇÃO SINTAXE: Executa a injeção via bloco de controle local legítimo do Unlang
-        update control {
-            &Tmp-String-0 := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
+        # 🎯 SOLUÇÃO DA FALHA: Executa a injeção via avaliação condicional direta sem quebrar o interpretador Unlang
+        if ("%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}" == "") {
+            reject
         }
         reject
     }
@@ -313,7 +313,6 @@ touch /var/log/unbound/unbound.log
 chown -R unbound:unbound /var/log/unbound
 chmod 644 /var/log/unbound/unbound.log
 
-# Escreve a arquitetura limpa de includes do Unbound
 cat << 'EOF2' > /etc/unbound/unbound.conf
 include: /etc/unbound/unbound.conf.d/remote-control.conf
 server:
@@ -349,7 +348,6 @@ extended-statistics: yes
 statistics-cumulative: no
 EOF2
 
-# Inicializa os arquivos planos de tabelas dinâmicas do Unbound
 cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
@@ -358,25 +356,20 @@ touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf
 chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf
 chmod 664 /etc/unbound/*.conf
 
-# Remove a trava de segurança do kernel (AppArmor) para autorizar a gravação de logs externos
 aa-complain /usr/sbin/unbound || true
 
-# Validação segura das chaves raiz do Unbound
 if [ -x /usr/sbin/unbound-anchor ]; then
     /usr/sbin/unbound-anchor || true
 fi
 
-# Concede direitos para o usuário PHP executar reloads suaves sem derrubar o cache do Unbound
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
-# Configura o ambiente virtual Python exclusivo para os daemons de métricas de rede
 echo "[*] Configurando ambiente virtual Python e dependências de NOC..."
 mkdir -p /var/www/html/isp-client/ferramentas/dns
 python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install flask psycopg2-binary reportlab
 
-# Cria a unidade Systemd para monitoramento contínuo dos logs do Unbound
 cat << 'EOF2' > /etc/systemd/system/dns-metrics-collector.service
 [Unit]
 Description=VisaoSoft DNS Metrics Daemon Collector
