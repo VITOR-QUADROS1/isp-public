@@ -10,7 +10,7 @@ echo ""
 
 # 0.1 LIMPEZA ESTRUTURAL COMPLETA BEFORE CLEAN DEPLOY
 echo "[*] Removendo instalações, processos e bancos de dados anteriores..."
-systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound freeradius || true
+systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound routinator krill freeradius || true
 pkill -9 php-fpm || true
 pkill -9 php || true
 
@@ -52,6 +52,13 @@ apt-get update && apt-get upgrade -y
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron freeradius freeradius-postgresql
 
+# 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI (NLNET LABS)
+echo "[*] Adicionando repositório oficial NLnet Labs e instalando Routinator + Krill..."
+curl -fsSL https://packages.nlnetlabs.nl/aptkey.asc | gpg --dearmor -o /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/nlnetlabs-archive-keyring.gpg] https://packages.nlnetlabs.nl/linux/debian bookworm main" > /etc/apt/sources.list.d/nlnetlabs.list
+apt-get update
+apt-get install -y routinator krill
+
 # 3. Instalar o Nginx e os Bancos de Dados
 echo "[*] Instalando Nginx, PostgreSQL e SQLite..."
 apt-get install -y nginx postgresql postgresql-contrib sqlite3
@@ -89,7 +96,7 @@ cat /root/.ssh/id_isp_client.pub
 echo "====================================================================="
 echo "👉 PASSO OBRIGATÓRIO:"
 echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
-echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT."
+echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT de laboratório."
 echo "====================================================================="
 echo ""
 
@@ -99,10 +106,40 @@ if [ "$CONFIRMACAO" != "OK" ] && [ "$CONFIRMACAO" != "ok" ]; then
     exit 1
 fi
 
-# Baixando o código via SSH direto da branch de laboratório
-echo "[*] Baixando a build do GitHub de forma segura..."
+# Baixando o código fonte aberto via SSH direto do repositório mestre de desenvolvimento
+echo "[*] Baixando os códigos de laboratório do GitHub de forma segura..."
 mkdir -p /var/www/html
 git clone git@github.com:VITOR-QUADROS1/isp-client.git /var/www/html/isp-client
+
+# ====================================================================
+# 🛠️ ESTRUTURA EXCLUSIVA DO LAB: INSTALAÇÃO DO COMPILADOR YAKPRO-PO
+# ====================================================================
+echo "[*] Configurando dependências do motor de ofuscação de Lab (Yakpro-PO)..."
+cd /opt
+rm -rf PHP-Parser yakpro-po || true
+git clone https://github.com/nikic/PHP-Parser.git
+git clone https://github.com/pk-fr/yakpro-po.git
+cd yakpro-po
+git clone https://github.com/nikic/PHP-Parser.git
+chmod +x yakpro-po.php
+ln -sf /opt/yakpro-po/yakpro-po.php /usr/local/bin/yakpro-po
+
+cat << 'YAKCONF' > /opt/yakpro-po/yakpro-po.cnf
+<?php
+$conf->source_directory = null;
+$conf->target_directory = null;
+$conf->obfuscate_constant_name = true;
+$conf->obfuscate_variable_name = true;
+$conf->obfuscate_function_name = true;
+$conf->obfuscate_class_name    = true;
+$conf->ignore_file_path_names  = array("/vendor");
+YAKCONF
+
+echo "[*] Vinculando repositório de produção em paralelo para autorizar auto-deploy..."
+cd /var/www/html/
+git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git || true
+chmod +x /var/www/html/isp-client/deploy.sh || true
+# ====================================================================
 
 # 🔐 Gerar Certificado SSL Autoassinado para HTTPS (Válido por 10 anos)
 echo "[*] Gerando chaves de criptografia SSL para HTTPS..."
@@ -154,27 +191,27 @@ su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_a
 echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 
-# 🔥 SEED AUTOMÁTICO: Popula os scripts e fabricantes
+# 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes nativos na interface
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
 # 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
--- Garante que as colunas active exigidas pelo código existam por padrão
+-- Garante que as colunas active exigidas pelo código atual existam por padrão
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
--- Concede direitos totais para o usuário PHP manipular tabelas e sequências
+-- Concede direitos totais para o usuário PHP manipular tabelas e auto-incrementos (IDs)
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO CORRIGIDA (Removido aspas do EOF2 para gerar hashes reais)
+# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO CORRIGIDA (Sem aspas no heredoc para expandir os hashes)
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
@@ -203,7 +240,7 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA (COM PATCH DE BYPASS)
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
@@ -259,7 +296,6 @@ touch /var/log/unbound/unbound.log
 chown -R unbound:unbound /var/log/unbound
 chmod 644 /var/log/unbound/unbound.log
 
-# Escreve a arquitetura limpa de includes do Unbound
 cat << 'EOF2' > /etc/unbound/unbound.conf
 include: /etc/unbound/unbound.conf.d/remote-control.conf
 server:
@@ -295,7 +331,6 @@ extended-statistics: yes
 statistics-cumulative: no
 EOF2
 
-# Inicializa os arquivos planos de tabelas dinâmicas do Unbound
 cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
@@ -304,20 +339,15 @@ touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf
 chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf
 chmod 664 /etc/unbound/*.conf
 
-# Remove a trava de segurança do kernel (AppArmor) para autorizar a gravação de logs externos
 aa-complain /usr/sbin/unbound || true
-
-# Concede direitos para o usuário PHP executar reloads suaves sem derrubar o cache do Unbound
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
-# Configura o ambiente virtual Python exclusivo para os daemons de métricas de rede
 echo "[*] Configurando ambiente virtual Python e dependências de NOC..."
 mkdir -p /var/www/html/isp-client/ferramentas/dns
 python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install flask psycopg2-binary reportlab
 
-# Cria a unidade Systemd para monitoramento contínuo dos logs do Unbound
 cat << 'EOF2' > /etc/systemd/system/dns-metrics-collector.service
 [Unit]
 Description=VisaoSoft DNS Metrics Daemon Collector
@@ -333,6 +363,31 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF2
+# ====================================================================
+
+# ====================================================================
+# 🛡️ ESQUELETO OPERACIONAL DE SINALIZAÇÃO DO ENTORNO RPKI (NLNET LABS)
+# ====================================================================
+echo "[*] Configurando daemons modulares do RPKI (Routinator e Krill)..."
+cat << 'EOF2' > /etc/routinator/routinator.conf
+repository-dir = "/var/lib/routinator/repository"
+rtr-listen = ["0.0.0.0:3323"]
+http-listen = ["127.0.0.1:8323"]
+log-level = "info"
+EOF2
+chown -R routinator:routinator /var/lib/routinator /etc/routinator
+
+cat << 'EOF2' > /etc/krill.conf
+ip = "0.0.0.0"
+port = 3000
+auth_token = "d7kLj4HxFlgLIk4DxMgXLMU2GAdkIGVu"
+data_dir = "/var/lib/krill/data"
+log_type = "syslog"
+log_level = "info"
+EOF2
+mkdir -p /var/log/krill /var/lib/krill/data
+chown krill:krill /etc/krill.conf
+chown -R krill:krill /var/log/krill /var/lib/krill
 # ====================================================================
 
 # Implantação de Serviço Nativo do Coletor NetFlow (Híbrido v5/v9)
@@ -373,7 +428,7 @@ cat << 'XML' > /etc/logrotate.d/isp-flow
 }
 XML
 
-# 🛑 FORMATAÇÃO DO FLOW EM ZERO ABSOLUTO E AJUSTE DE PERMISSÃO CONTRA LOCKS
+# 🛑 FORMATAÇÃO DO FLOW MONITOR EM ZERO ABSOLUTO COMERCIAL
 echo "[*] Formatando base de dados do Flow Monitor em zero absoluto comercial..."
 mkdir -p /var/www/html/isp-client/flow/data
 echo "[]" > /var/www/html/isp-client/flow/data/flows.json
@@ -420,8 +475,9 @@ find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
 # Inicializando e acordando todos os serviços
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius
+systemctl enable netflow-collector.service dns-metrics-collector.service unbound routinator krill freeradius
+systemctl reset-failed krill || true
+systemctl restart unbound dns-metrics-collector.service netflow-collector.service routinator krill freeradius
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 

@@ -174,7 +174,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO CORRIGIDA (Removido aspas do EOF2 para gerar hashes reais)
+# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO CORRIGIDA (Sem aspas no heredoc para expandir os hashes)
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
@@ -203,7 +203,7 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA (COM PATCH DE BYPASS DE TABELAS AUSENTES)
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
@@ -383,6 +383,7 @@ chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
 
 # Ajustar permissões globais e liberar o MTR
+chown -R www-data:www-data /var/html/isp-client
 chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
 chmod -s /usr/bin/mtr || true
@@ -426,7 +427,7 @@ systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
 echo "===================================================="
-echo "        INSTAÇÃO CONCLUÍDA COM SUCESSO!           "
+echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 
