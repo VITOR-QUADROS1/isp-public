@@ -52,9 +52,13 @@ apt-get update && apt-get upgrade -y
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron freeradius freeradius-postgresql
 
-# 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI (NLNET LABS)
+# 🔥 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI COM CORREÇÃO DE CHAVE GPG MESTRE (NLNET LABS)
 echo "[*] Adicionando repositório oficial NLnet Labs e instalando Routinator + Krill..."
+mkdir -p /usr/share/keyrings
 curl -fsSL https://packages.nlnetlabs.nl/aptkey.asc | gpg --dearmor -o /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
+# Injeção via Keyserver da assinatura em falta para travar o NO_PUBKEY 94E92A0708C4CC43 de laboratório
+gpg --no-default-keyring --keyring /usr/share/keyrings/nlnetlabs-archive-keyring.gpg --keyserver keyserver.ubuntu.com --recv-keys 94E92A0708C4CC43 || true
+
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/nlnetlabs-archive-keyring.gpg] https://packages.nlnetlabs.nl/linux/debian bookworm main" > /etc/apt/sources.list.d/nlnetlabs.list
 apt-get update
 apt-get install -y routinator krill
@@ -185,7 +189,7 @@ rm -f /etc/nginx/sites-enabled/default || true
 # Configuração do Banco de Dados PostgreSQL
 echo "[*] Configurando banco de dados PostgreSQL..."
 su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\"" || true
-su - postgres -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
+su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
 
 # Importa o arquivo de estrutura limpa
 echo "[*] Importando tabelas limpas do sistema..."
@@ -278,6 +282,22 @@ sql {
 }
 RADIUS_CONF
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
+
+# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf limpo contendo estritamente o localhost de fábrica
+cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
+client localhost {
+    ipaddr = 127.0.0.1
+    secret = testing123
+    nas_type = other
+}
+
+client localhost_ipv6 {
+    ipv6addr = ::1
+    secret = testing123
+    nas_type = other
+}
+CLIENTS_CONF
+
 chown -R freerad:freerad /etc/freeradius/3.0/
 
 # Ativa estritamente o módulo SQL isolado no fluxo do FreeRADIUS (Sem quebrar o sqlippool)
@@ -487,7 +507,7 @@ echo "nameserver 127.0.0.1" > /etc/resolv.conf
 chattr +i /etc/resolv.conf
 
 echo "===================================================="
-echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
+echo "        INSTALACAO CONCLUIDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 

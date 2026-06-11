@@ -241,6 +241,22 @@ sql {
 }
 RADIUS_CONF
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
+
+# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf limpo contendo estritamente o localhost de fábrica
+cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
+client localhost {
+    ipaddr = 127.0.0.1
+    secret = testing123
+    nas_type = other
+}
+
+client localhost_ipv6 {
+    ipv6addr = ::1
+    secret = testing123
+    nas_type = other
+}
+CLIENTS_CONF
+
 chown -R freerad:freerad /etc/freeradius/3.0/
 
 # Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS (Sem quebrar o sqlippool)
@@ -381,7 +397,7 @@ chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
 
 # Ajustar permissões globais e liberar o MTR
-chown -R www-data:www-data /var/www/html/isp-client
+chown -R www-data:www-data /var/html/isp-client || chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
 chmod -s /usr/bin/mtr || true
 chmod -s /usr/libexec/mtr-packet 2>/dev/null || true
