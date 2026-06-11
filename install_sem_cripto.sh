@@ -34,14 +34,14 @@ systemctl daemon-reload || true
 # 0.2 Configurar Repositórios do Debian Minimal
 echo "[*] Configurando repositórios oficiais do Debian 12 (Internet)..."
 cat << 'EOF2' > /etc/apt/sources.list
-deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian/ bookworm main bandwidth non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ bookworm main bandwidth non-free non-free-firmware
 
-deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+deb http://security.debian.org/debian-security bookworm-security main bandwidth non-free non-free-firmware
+deb-src http://security.debian.org/debian-security bookworm-security main bandwidth non-free non-free-firmware
 
-deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
-deb-src http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
+deb http://deb.debian.org/debian/ bookworm-updates main bandwidth non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ bookworm-updates main bandwidth non-free non-free-firmware
 EOF2
 
 # 1. Atualizar o Sistema com a nova lista de internet
@@ -205,7 +205,7 @@ systemctl restart postgresql
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS AVANÇADAS DO AUDIT LOG
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código existam por padrão
@@ -213,6 +213,10 @@ ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAUL
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
+
+-- 🎯 EXPANSÃO OPERACIONAL: Garante as colunas para IP Origem e Porta no Histórico RADIUS
+ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS callingstationid character varying(50) DEFAULT '';
+ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS nasportid character varying(32) DEFAULT '';
 
 -- Concede direitos totais para o usuário PHP manipular tabelas e sequências
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
@@ -311,6 +315,11 @@ sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradi
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
 
+# 🎯 SINCRONISMO AVANÇADO DE CAMPOS DE LOG EM QUERIES.CONF DO FREERADIUS
+echo "[*] Aplicando patch de engenharia nas queries de auditoria do FreeRADIUS..."
+sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply, nasipaddress, authdate, callingstationid, nasportid)/g' /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
+sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
+
 # ====================================================================
 # 🔥 POLÍTICA DE BRUTE FORCE MESTRE: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
 # ====================================================================
@@ -321,8 +330,8 @@ cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
         update reply {
             Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
         }
-        # Injeta log cosmético no banco para auditoria visual da interface identificar o lockout
-         RolandLog := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW())}"
+        # Injeta log cosmético avançado com IP Origem e Porta do NAS
+         RolandLog := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
         reject
     }
 EOF_POLICY
