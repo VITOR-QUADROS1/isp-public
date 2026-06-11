@@ -48,8 +48,8 @@ EOF2
 echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
 
-# 2. Instalar todas as dependências do sistema, redes, recursivo, e-mail e freeradius
-echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
+# 2. Instalar todas as dependências do sistema, redes, recursivo, e-mail e linguagens
+echo "[*] Instalando ferramentas de rede, recursivo, e-mail e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron
 
 # 3. Instalar o Nginx e os Bancos de Dados
@@ -154,8 +154,8 @@ su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_a
 echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 
-# 🚀 LIBERAÇÃO DO BANCO MESTRE PARA ESCUTA EXTERNA DINÂMICA
-echo "[*] Configurando barramento de escuta externa do PostgreSQL..."
+# 🚀 LIBERAÇÃO DO BANCO MESTRE PARA ESCUTA EXTERNA DINÂMICA (TECNICOS DE CLIENTES)
+echo "[*] Configurando barramento de escuta externa do PostgreSQL corporativo..."
 sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/15/main/postgresql.conf
 echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/15/main/pg_hba.conf
 systemctl restart postgresql
@@ -164,7 +164,7 @@ systemctl restart postgresql
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR DE FÁBRICA
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código atual existam por padrão
@@ -180,7 +180,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO
+# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO (Povoa usuários master de fábrica com hashes gerados em tempo de execução)
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
@@ -202,15 +202,15 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL VALIDA (PURGA COMPLETA ANTI-ERRO RESIDUAL)
-echo "[*] Expurgando instalações anteriores do FreeRADIUS para garantir baseline limpo..."
-apt-get purge -y freeradius freeradius-postgresql || true
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA VALIDA (REMOÇÃO DE RESÍDUOS CORROMPIDOS)
+echo "[*] Expurgando completamente a instalação corrompida anterior do FreeRADIUS..."
+apt-get purge -y freeradius freeradius-postgresql freeradius-common freeradius-config freeradius-utils || true
 rm -rf /etc/freeradius || true
 
-echo "[*] Instalando FreeRADIUS limpo de fábrica..."
+echo "[*] Instalando FreeRADIUS limpo de fábrica e gerando diretórios..."
 apt-get install -y freeradius freeradius-postgresql
 
-echo "[*] Aplicando arquivos de configuração estáveis..."
+echo "[*] Escrevendo arquivo modular estável do PostgreSQL..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
     driver = "rlm_sql_postgresql"
@@ -255,7 +255,7 @@ sql {
 RADIUS_CONF
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
 
-# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf original estável
+# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf original estável de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
 client localhost {
     ipaddr = 127.0.0.1
@@ -272,14 +272,13 @@ CLIENTS_CONF
 
 chown -R freerad:freerad /etc/freeradius/3.0/
 
-# Ativa o modulo SQL no fluxo padrão do FreeRADIUS de forma segura
+# Ativa o modulo SQL nativo nas esteiras do FreeRADIUS de fábrica (Sem códigos experimentais)
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
 
-# Concede direitos de reload suave para a interface Web
-echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
-chmod 440 /etc/sudoers.d/www-data-freeradius
+# Concede direitos de reload suave para o usuário PHP
+echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers
 
 # ====================================================================
 # 🌐 CONFIGURAÇÃO INDUSTRIAL INTEGRADA DO DNS RECURSIVO UNBOUND
@@ -290,6 +289,7 @@ touch /var/log/unbound/unbound.log
 chown -R unbound:unbound /var/log/unbound
 chmod 644 /var/log/unbound/unbound.log
 
+# Escreve a arquitetura limpa de includes do Unbound
 cat << 'EOF2' > /etc/unbound/unbound.conf
 include: /etc/unbound/unbound.conf.d/remote-control.conf
 server:
@@ -325,6 +325,7 @@ extended-statistics: yes
 statistics-cumulative: no
 EOF2
 
+# Inicializa os arquivos planos de tabelas dinâmicas do Unbound
 cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
@@ -333,20 +334,25 @@ touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf
 chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf
 chmod 664 /etc/unbound/*.conf
 
+# Remove a trava de segurança do kernel (AppArmor) para autorizar a gravação de logs externos
 aa-complain /usr/sbin/unbound || true
 
+# Validação segura das chaves raiz do Unbound
 if [ -x /usr/sbin/unbound-anchor ]; then
     /usr/sbin/unbound-anchor || true
 fi
 
+# Concede direitos para o usuário PHP executar reloads suaves sem derrubar o cache do Unbound
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
+# Configura o ambiente virtual Python exclusivo para os daemons de métricas de rede
 echo "[*] Configurando ambiente virtual Python e dependências de NOC..."
 mkdir -p /var/www/html/isp-client/ferramentas/dns
 python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install flask psycopg2-binary reportlab
 
+# Cria a unidade Systemd para monitoramento contínuo dos logs do Unbound
 cat << 'EOF2' > /etc/systemd/system/dns-metrics-collector.service
 [Unit]
 Description=VisaoSoft DNS Metrics Daemon Collector
@@ -462,7 +468,7 @@ echo "nameserver 127.0.0.1" > /etc/resolv.conf
 chattr +i /etc/resolv.conf
 
 echo "===================================================="
-echo "        INSTAÇÃO CONCLUÍDA COM SUCESSO!           "
+echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 

@@ -98,10 +98,10 @@ echo "🔑 CHAVE DE LIBERAÇÃO DO SISTEMA (DEPLOY KEY)"
 echo "====================================================================="
 cat /root/.ssh/id_isp_client.pub
 echo "====================================================================="
-echo "👉 PASSO OBRIGATÓRIO:"
-echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
-echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT de laboratório."
-echo "====================================================================="
+👉 PASSO OBRIGATÓRIO:
+1. Copie a chave acima completa (começando em ssh-ed25519 até o fim).
+2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT de laboratório.
+=====================================================================
 echo ""
 
 read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CONFIRMACAO
@@ -243,15 +243,15 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL VALIDA (PURGA COMPLETA ANTI-ERRO RESIDUAL)
-echo "[*] Expurgando instalações anteriores do FreeRADIUS para garantir baseline limpo..."
-apt-get purge -y freeradius freeradius-postgresql || true
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA VALIDA (PURGA COMPLETA ANTI-ERRO RESIDUAL)
+echo "[*] Expurgando completamente a instalação corrompida anterior do FreeRADIUS..."
+apt-get purge -y freeradius freeradius-postgresql freeradius-common freeradius-config freeradius-utils || true
 rm -rf /etc/freeradius || true
 
-echo "[*] Instalando FreeRADIUS limpo de fábrica..."
+echo "[*] Instalando FreeRADIUS limpo de fábrica e gerando diretórios..."
 apt-get install -y freeradius freeradius-postgresql
 
-echo "[*] Aplicando arquivos de configuração estáveis..."
+echo "[*] Escrevendo arquivo modular estável do PostgreSQL..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
     driver = "rlm_sql_postgresql"
@@ -296,7 +296,7 @@ sql {
 RADIUS_CONF
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
 
-# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf original estável
+# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf original estável de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
 client localhost {
     ipaddr = 127.0.0.1
