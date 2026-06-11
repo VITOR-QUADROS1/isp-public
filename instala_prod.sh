@@ -87,7 +87,7 @@ echo "🔑 CHAVE DE LIBERAÇÃO DO SISTEMA (DEPLOY KEY)"
 echo "====================================================================="
 cat /root/.ssh/id_isp_client.pub
 echo "====================================================================="
-echo "👉 PASSO OBRIGATOKIO:"
+echo "👉 PASSO OBRIGATÓRIO:"
 echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
 echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT-PROD."
 echo "====================================================================="
@@ -174,21 +174,14 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO CORRIGIDA (Sem aspas no heredoc para expandir os hashes)
+# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO (Povoa usuários master de fábrica com hashes gerados em tempo de execução)
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
-cat << EOF2 | sudo -u postgres psql -d isp_client_portal
-INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at)
-VALUES
-('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()),
-('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW())
-ON CONFLICT (username) DO NOTHING;
 
-INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes)
-VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10)
-ON CONFLICT (id) DO NOTHING;
-EOF2
+sudo -u postgres psql -d isp_client_portal -c "INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;"
+
+sudo -u postgres psql -d isp_client_portal -c "INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;"
 
 # Criar arquivo de credenciais local
 echo "[*] Escrevendo arquivo de credenciais local..."
@@ -249,6 +242,11 @@ sql {
 RADIUS_CONF
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
 chown -R freerad:freerad /etc/freeradius/3.0/
+
+# Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS (Sem quebrar o sqlippool)
+sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
+sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
+sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
 
 # ====================================================================
 # 🌐 CONFIGURAÇÃO INDUSTRIAL INTEGRADA DO DNS RECURSIVO UNBOUND
