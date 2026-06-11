@@ -154,6 +154,12 @@ su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_a
 echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 
+# 🚀 LIBERAÇÃO DO BANCO MESTRE PARA ESCUTA EXTERNA DINÂMICA (TECNICOS DE CLIENTES)
+echo "[*] Configurando barramento de escuta externa do PostgreSQL corporativo..."
+sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/15/main/postgresql.conf
+echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/15/main/pg_hba.conf
+systemctl restart postgresql
+
 # 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes nativos na interface
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php

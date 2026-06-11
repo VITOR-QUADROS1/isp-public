@@ -186,7 +186,7 @@ XML
 ln -sf /etc/nginx/sites-available/isp-client /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default || true
 
-# Configuração do Banco de Dados PostgreSQL
+# Configuração do Banco de Dados PostgreSQL (FIXED: Aspas e comando psql estruturado)
 echo "[*] Configurando banco de dados PostgreSQL..."
 su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\"" || true
 su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
@@ -195,13 +195,19 @@ su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_a
 echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 
+# 🚀 LIBERAÇÃO DO BANCO MESTRE PARA ESCUTA EXTERNA DINÂMICA (TECNICOS DE CLIENTES)
+echo "[*] Configurando barramento de escuta externa do PostgreSQL corporativo..."
+sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/15/main/postgresql.conf
+echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/15/main/pg_hba.conf
+systemctl restart postgresql
+
 # 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR (FIXED: Redirecionamento de descriptor corrigido)
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
-cat << 'EOF2' > /etc/unbound/acls.conf
+cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código existam por padrão
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
@@ -216,7 +222,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_a
 EOF2
 
 # 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO
-echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
+echo "[*] Injetando usuários administradores e parameters padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
 
