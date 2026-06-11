@@ -4,13 +4,13 @@ set -e
 
 echo "===================================================="
 echo "    INSTALADOR AUTOMATIZADO - VITOR-QUADROS ISP     "
-echo "               (AMBIENTE DE LAB)                    "
+echo "               (VERSÃO DE LAB NATIVA)               "
 echo "===================================================="
 echo ""
 
-# 🧹 0.1 LIMPEZA ESTRUTURAL COMPLETA BEFORE CLEAN DEPLOY
-echo "[*] Removendo instalações, processos e bancos de dados anteriores..."
-systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound || true
+# 0. LIMPEZA ESTRUTURAL COMPLETA BEFORE CLEAN DEPLOY
+echo "[*] Removendo instalações, processos e daemons anteriores..."
+systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound krill routinator freeradius || true
 pkill -9 php-fpm || true
 pkill -9 php || true
 
@@ -21,54 +21,39 @@ if systemctl is-active --quiet postgresql; then
 fi
 
 rm -rf /var/www/html/isp-client || true
-rm -f /etc/cron.d/isp-client || true
-rm -f /etc/sudoers.d/www-data-mtr || true
+rm -f /etc/cron.d/isp-client /etc/sudoers.d/www-data-mtr || true
 rm -rf /etc/systemd/system/php8.2-fpm.service.d/ || true
-rm -f /etc/systemd/system/netflow-collector.service || true
-rm -f /etc/systemd/system/dns-metrics-collector.service || true
-rm -f /etc/nginx/ssl/isp-client.* || true
+rm -f /etc/systemd/system/netflow-collector.service /etc/systemd/system/dns-metrics-collector.service /etc/nginx/ssl/isp-client.* || true
 systemctl daemon-reload || true
 
-# 0.2 Configurar Repositórios do Debian Minimal
+# 1. REPOSITÓRIOS
 echo "[*] Configurando repositórios oficiais do Debian 12 (Internet)..."
 cat << 'EOF' > /etc/apt/sources.list
 deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
 deb-src http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
-
 deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-
 deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
 deb-src http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
 EOF
 
-# 1. Atualizar o Sistema com a nova lista de internet
 echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
 
-# 2. Instalar todas as dependências do sistema, redes, e-mail e recursivo
-echo "[*] Instalando ferramentas de rede, recursivo, e-mail e linguagens..."
-apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils nodejs msmtp msmtp-mta git cron
+echo "[*] Instalando dependências essenciais do sistema..."
+apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron nginx postgresql postgresql-contrib sqlite3 php8.2 php8.2-fpm php8.2-pgsql php8.2-sqlite3 php8.2-curl php8.2-mbstring php8.2-xml php8.2-zip php8.2-gd php8.2-intl php-ssh2 libphp-phpmailer wine xvfb x11vnc novnc fluxbox websockify freeradius freeradius-postgresql
 
-# 3. Instalar o Nginx e os Bancos de Dados
-echo "[*] Instalando Nginx, PostgreSQL e SQLite..."
-apt-get install -y nginx postgresql postgresql-contrib sqlite3
+# 2. INSTALAÇÃO RPKI (NLNET LABS)
+echo "[*] Adicionando repositório NLnet Labs e instalando Routinator e Krill..."
+curl -fsSL https://packages.nlnetlabs.nl/aptkey.asc | gpg --dearmor -o /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/nlnetlabs-archive-keyring.gpg] https://packages.nlnetlabs.nl/linux/debian bookworm main" > /etc/apt/sources.list.d/nlnetlabs.list
+apt-get update
+apt-get install -y routinator krill
 
-# 4. Instalar o PHP 8.2 e todos os módulos necessários
-echo "[*] Instalando PHP 8.2 e extensões..."
-apt-get install -y php8.2 php8.2-fpm php8.2-pgsql php8.2-sqlite3 php8.2-curl php8.2-mbstring php8.2-xml php8.2-zip php8.2-gd php8.2-intl php-ssh2 libphp-phpmailer
-
-# 5. Instalar o ambiente gráfico Web para o Winbox (Wine e NoVNC)
-echo "[*] Instalando ambiente gráfico para Winbox via navegador..."
-apt-get install -y wine xvfb x11vnc novnc fluxbox websockify
-
-# 🚀 6. CONFIGURAÇÃO DA CHAVE SSH COM O GITHUB
+# 3. CHAVES SSH DINÂMICAS
 echo "[*] Configurando chaves SSH locais..."
-mkdir -p /root/.ssh
-chmod 700 /root/.ssh
-
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
 rm -f /root/.ssh/id_isp_client /root/.ssh/id_isp_client.pub /root/.ssh/config
-
 ssh-keygen -t ed25519 -f /root/.ssh/id_isp_client -N "" -q
 
 cat << 'EOF' > /root/.ssh/config
@@ -85,25 +70,15 @@ echo "🔑 CHAVE DE LIBERAÇÃO DO SISTEMA (DEPLOY KEY)"
 echo "====================================================================="
 cat /root/.ssh/id_isp_client.pub
 echo "====================================================================="
-echo "👉 PASSO OBRIGATÓRIO:"
-echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
-echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key deste projeto."
-echo "====================================================================="
 echo ""
-
 read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CONFIRMACAO
-if [ "$CONFIRMACAO" != "OK" ] && [ "$CONFIRMACAO" != "ok" ]; then
-    echo "❌ Instalação cancelada pelo usuário."
-    exit 1
-fi
 
-# Baixando o código via SSH aberto
-echo "[*] Baixando o código do sistema do GitHub de forma segura..."
+echo "[*] Baixando a build protegida do GitHub de forma segura..."
 mkdir -p /var/www/html
 git clone git@github.com:VITOR-QUADROS1/isp-client.git /var/www/html/isp-client
 
 # ====================================================================
-# 🛠️ AMBIENTE DE DESENVOLVIMENTO (LAB): OFUSCADOR E PRODUÇÃO
+# 🛠️ AMBIENTE DE DESENVOLVIMENTO (LAB): OFUSCADOR INTERNO
 # ====================================================================
 echo "[*] Instalando motor de ofuscação PHP (Yakpro-PO)..."
 cd /opt
@@ -133,15 +108,10 @@ git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git || true
 chmod +x /var/www/html/isp-client/deploy.sh || true
 # ====================================================================
 
-# 🔐 Gerar Certificado SSL Autoassinado para HTTPS (Válido por 10 anos)
 echo "[*] Gerando chaves de criptografia SSL para HTTPS..."
 mkdir -p /etc/nginx/ssl
-openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-  -keyout /etc/nginx/ssl/isp-client.key \
-  -out /etc/nginx/ssl/isp-client.crt \
-  -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp" 2>/dev/null
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout /etc/nginx/ssl/isp-client.key -out /etc/nginx/ssl/isp-client.crt -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp" 2>/dev/null
 
-# Configurar Servidor Web Nginx (HTTPS) na Porta 8081
 echo "[*] Configurando Servidor Web Nginx para a porta 8081 (HTTPS)..."
 cat << 'XML' > /etc/nginx/sites-available/isp-client
 server {
@@ -155,34 +125,28 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
+    location / { try_files $uri $uri/ /index.php?$query_string; }
     location ~ \.php$ {
         include snippets/fastcgi-php.conf;
         fastcgi_pass unix:/run/php/php8.2-fpm.sock;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
         include fastcgi_params;
     }
-    location ~ /\.ht {
-        deny all;
-    }
+    location ~ /\.ht { deny all; }
 }
 XML
-
 ln -sf /etc/nginx/sites-available/isp-client /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default || true
 
-# Configuração do Banco de Dados PostgreSQL
 echo "[*] Configurando banco de dados PostgreSQL..."
-su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\"" || true
-su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
-cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal >/dev/null
+su - postgres -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\" || true
+su - postgres -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\" || true
+
+cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR DE FÁBRICA
 echo "[*] Aplicando patches de segurança e permissões..."
-cat << 'EOF' | sudo -u postgres psql -d isp_client_portal >/dev/null
+cat << 'EOF' | sudo -u postgres psql -d isp_client_portal
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
@@ -193,17 +157,14 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO
 echo "[*] Injetando usuários administradores..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
-cat << 'EOF' | sudo -u postgres psql -d isp_client_portal >/dev/null
+cat << 'EOF' | sudo -u postgres psql -d isp_client_portal
 INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;
 INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;
 EOF
 
-# Criar arquivo de credenciais local
-echo "[*] Escrevendo arquivo de credenciais local..."
 mkdir -p /var/www/html/isp-client/config
 cat << EOF > /var/www/html/isp-client/config/env.php
 <?php
@@ -213,13 +174,55 @@ define('SIRENE_APP_KEY', '$(openssl rand -hex 32)');
 EOF
 chown root:www-data /var/www/html/isp-client/config/env.php && chmod 640 /var/www/html/isp-client/config/env.php
 
-# ====================================================================
-# 🌐 CONFIGURAÇÃO RECURSIVA PURA AUTO-DINÂMICA DO UNBOUND
-# ====================================================================
-echo "[*] Configurando esqueleto modular do DNS Unbound Recursivo..."
+echo "[*] Configurando o modulo SQL do FreeRADIUS..."
+cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
+sql {
+    driver = "rlm_sql_postgresql"
+    dialect = "postgresql"
+    server = "127.0.0.1"
+    port = 5432
+    login = "isp_client_app"
+    password = "Union@2026!"
+    radius_db = "isp_client_portal"
+    client_table = "nas"
+    authcheck_table = "radcheck"
+    authreply_table = "radreply"
+    groupcheck_table = "radgroupcheck"
+    groupreply_table = "radgroupreply"
+    usergroup_table = "radusergroup"
+    acct_table1 = "radacct"
+    acct_table2 = "radacct"
+    postauth_table = "radpostauth"
+    group_attribute = "SQL-Group"
+    read_clients = yes
+    read_groups = yes
+    read_profiles = yes
+    delete_stale_sessions = yes
+    sql_user_name = "%{User-Name}"
+    default_user_profile = ""
+    client_query = "SELECT id,nasname,shortname,type,secret FROM nas"
+    safe_characters = "@abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_: /"
+    auto_escape = no
+    pool {
+        start = 5
+        min = 3
+        max = 32
+        spare = 10
+        idle_timeout = 60
+        retry_delay = 30
+    }
+    $include /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
+    authorize {
+        authorize_reply_query = "SELECT 1 WHERE 1=0"
+    }
+}
+RADIUS_CONF
+ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
+chown -R freerad:freerad /etc/freeradius/3.0/
+
+echo "[*] Configurando DNS Unbound RECURSIVO PURO..."
 mkdir -p /var/log/unbound && touch /var/log/unbound/unbound.log
 chown -R unbound:unbound /var/log/unbound && chmod 644 /var/log/unbound/unbound.log
-
 cat << 'EOF' > /etc/unbound/unbound.conf
 include: /etc/unbound/unbound.conf.d/remote-control.conf
 server:
@@ -307,6 +310,27 @@ RestartSec=3
 WantedBy=multi-user.target
 EOF
 
+echo "[*] Configurando daemons do RPKI (Routinator e Krill)..."
+cat << 'EOF' > /etc/routinator/routinator.conf
+repository-dir = "/var/lib/routinator/repository"
+rtr-listen = ["0.0.0.0:3323"]
+http-listen = ["127.0.0.1:8323"]
+log-level = "info"
+EOF
+chown -R routinator:routinator /var/lib/routinator /etc/routinator
+
+cat << 'EOF' > /etc/krill.conf
+ip = "0.0.0.0"
+port = 3000
+auth_token = "d7kLj4HxFlgLIk4DxMgXLMU2GAdkIGVu"
+data_dir = "/var/lib/krill/data"
+log_type = "syslog"
+log_level = "info"
+EOF
+mkdir -p /var/log/krill /var/lib/krill/data
+chown krill:krill /etc/krill.conf
+chown -R krill:krill /var/log/krill /var/lib/krill
+
 mkdir -p /home/flow_logs && chown -R www-data:www-data /home/flow_logs
 rm -rf /var/www/html/isp-client/flow/logs || true
 ln -s /home/flow_logs /var/www/html/isp-client/flow/logs
@@ -351,12 +375,12 @@ rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service
+systemctl enable netflow-collector.service dns-metrics-collector.service unbound routinator krill freeradius
+systemctl reset-failed krill || true
+systemctl restart unbound dns-metrics-collector.service netflow-collector.service routinator krill freeradius
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
-# 🌐 AUTO-RESOLUÇÃO
 rm -f /etc/resolv.conf
 echo "nameserver 127.0.0.1" > /etc/resolv.conf
 
@@ -364,4 +388,3 @@ echo "===================================================="
 echo "        INSTALACAO CONCLUIDA COM SUCESSO!"
 echo "===================================================="
 rm -- "$0"
-EOF

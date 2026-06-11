@@ -14,14 +14,12 @@ systemctl stop nginx php8.2-fpm cron netflow-collector freeradius || true
 pkill -9 php-fpm || true
 pkill -9 php || true
 
-# Derruba conexões presas no Postgres e limpa o banco e o usuário antigo
 if systemctl is-active --quiet postgresql; then
     su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" || true
     su - postgres -c "psql -c \"DROP DATABASE IF EXISTS isp_client_portal WITH (FORCE);\"" || true
     su - postgres -c "psql -c \"DROP USER IF EXISTS isp_client_app;\"" || true
 fi
 
-# Passa o rodo nas pastas, crons, chaves e arquivos antigos
 rm -rf /var/www/html/isp-client || true
 rm -f /etc/cron.d/isp-client || true
 rm -f /etc/sudoers.d/www-data-mtr || true
@@ -63,7 +61,7 @@ apt-get install -y php8.2 php8.2-fpm php8.2-pgsql php8.2-sqlite3 php8.2-curl php
 echo "[*] Instalando ambiente gráfico para Winbox via navegador..."
 apt-get install -y wine xvfb x11vnc novnc fluxbox websockify
 
-# 🚀 6. CONFIGURAÇÃO DA CHAVE SSH COM O GITHUB
+# 🚀 6. CONFIGURAÇÃO DA CHAVE SSH DINÂMICA COM O GITHUB
 echo "[*] Configurando chaves SSH locais..."
 mkdir -p /root/.ssh
 chmod 700 /root/.ssh
@@ -85,6 +83,10 @@ chmod 600 /root/.ssh/config /root/.ssh/id_isp_client
 echo "🔑 CHAVE DE LIBERAÇÃO DO SISTEMA (DEPLOY KEY)"
 echo "====================================================================="
 cat /root/.ssh/id_isp_client.pub
+echo "====================================================================="
+echo "👉 PASSO OBRIGATÓRIO:"
+echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
+echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key deste projeto."
 echo "====================================================================="
 echo ""
 
@@ -149,7 +151,7 @@ su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_a
 echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO (Povoa usuários e a linha de configuração de backups ID=1)
+# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
@@ -178,7 +180,7 @@ EOF
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL HOMOLOGADO (BYPASS DE TABELAS AUSENTES)
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL NATIVO
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
@@ -314,7 +316,7 @@ systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
 echo "===================================================="
-echo "        INSTAÇÃO CONCLUÍDA COM SUCESSO!           "
+echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 
