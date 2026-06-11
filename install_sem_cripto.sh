@@ -186,7 +186,7 @@ XML
 ln -sf /etc/nginx/sites-available/isp-client /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default || true
 
-# Configuração do Banco de Dados PostgreSQL (FIXED: Aspas e comando psql estruturado)
+# Configuração do Banco de Dados PostgreSQL
 echo "[*] Configurando banco de dados PostgreSQL..."
 su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\"" || true
 su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
@@ -205,7 +205,7 @@ systemctl restart postgresql
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR (FIXED: Redirecionamento de descriptor corrigido)
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código existam por padrão
@@ -310,6 +310,29 @@ chown -R freerad:freerad /etc/freeradius/3.0/
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
+
+# ====================================================================
+# 🔥 POLÍTICA DE BRUTE FORCE MESTRE: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
+# ====================================================================
+echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
+cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
+    # Bloqueio temporário central de 30 minutos após 5 falhas consecutivas
+    if ("%{sql:SELECT COUNT(*) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes'}" >= 5) {
+        update reply {
+            Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
+        }
+        # Injeta log cosmético no banco para auditoria visual da interface identificar o lockout
+         RolandLog := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW())}"
+        reject
+    }
+EOF_POLICY
+sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/default
+sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/inner-tunnel
+rm -f /tmp/radius_block_policy.conf
+
+# Permite que o PHP (www-data) recarregue o FreeRADIUS nativamente via interface sem digitar senhas
+echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
+chmod 440 /etc/sudoers.d/www-data-freeradius
 
 # ====================================================================
 # 🌐 CONFIGURAÇÃO INDUSTRIAL INTEGRADA DO DNS RECURSIVO UNBOUND

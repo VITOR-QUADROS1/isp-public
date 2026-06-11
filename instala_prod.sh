@@ -271,6 +271,29 @@ sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradi
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
 
 # ====================================================================
+# 🔥 POLÍTICA DE BRUTE FORCE MESTRE: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
+# ====================================================================
+echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
+cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
+    # Bloqueio temporário central de 30 minutos após 5 falhas consecutivas
+    if ("%{sql:SELECT COUNT(*) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes'}" >= 5) {
+        update reply {
+            Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
+        }
+        # Injeta log cosmético no banco para auditoria visual da interface identificar o lockout
+         RolandLog := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW())}"
+        reject
+    }
+EOF_POLICY
+sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/default
+sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/inner-tunnel
+rm -f /tmp/radius_block_policy.conf
+
+# Permite que o PHP (www-data) recarregue o FreeRADIUS nativamente via interface sem digitar senhas
+echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
+chmod 440 /etc/sudoers.d/www-data-freeradius
+
+# ====================================================================
 # 🌐 CONFIGURAÇÃO INDUSTRIAL INTEGRADA DO DNS RECURSIVO UNBOUND
 # ====================================================================
 echo "[*] Configurando esqueleto modular do DNS Unbound..."
