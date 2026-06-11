@@ -52,11 +52,11 @@ apt-get update && apt-get upgrade -y
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron freeradius freeradius-postgresql
 
-# 🔥 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI COM CORREÇÃO DE CHAVE GPG MESTRE (NLNET LABS)
-echo "[*] Adicionando repositório oficial NLnet Labs e instalando Routinator + Krill..."
+# 🔥 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI COM CAPTURA DIRETTA DE GPG (SEM INTERATIVIDADE)
+echo "[*] Sincronizando chaves e adicionando repositório oficial NLnet Labs..."
 mkdir -p /usr/share/keyrings
+rm -f /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
 curl -fsSL https://packages.nlnetlabs.nl/aptkey.asc | gpg --dearmor -o /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
-# Injeção via Keyserver da assinatura em falta para travar o NO_PUBKEY 94E92A0708C4CC43 de laboratório
 gpg --no-default-keyring --keyring /usr/share/keyrings/nlnetlabs-archive-keyring.gpg --keyserver keyserver.ubuntu.com --recv-keys 94E92A0708C4CC43 || true
 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/nlnetlabs-archive-keyring.gpg] https://packages.nlnetlabs.nl/linux/debian bookworm main" > /etc/apt/sources.list.d/nlnetlabs.list
@@ -201,7 +201,7 @@ php /var/www/html/isp-client/backups/seed_backups.php
 
 # 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
-cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
+cat << 'EOF2' > /etc/unbound/acls.conf
 -- Garante que as colunas active exigidas pelo código existam por padrão
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
@@ -358,6 +358,12 @@ chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/
 chmod 664 /etc/unbound/*.conf
 
 aa-complain /usr/sbin/unbound || true
+
+# Validação segura das chaves raiz do Unbound
+if [ -x /usr/sbin/unbound-anchor ]; then
+    /usr/sbin/unbound-anchor || true
+fi
+
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
 echo "[*] Configurando ambiente virtual Python e dependências de NOC..."
@@ -460,7 +466,7 @@ chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
 chmod -s /usr/bin/mtr || true
 chmod -s /usr/libexec/mtr-packet 2>/dev/null || true
-chmod -s /usr/lib/mtr/mtr-packet 2>/dev/null || true
+chmod -s /usr/bin/mtr-packet 2>/dev/null || true
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/mtr" > /etc/sudoers.d/www-data-mtr
 chmod 440 /etc/sudoers.d/www-data-mtr
 

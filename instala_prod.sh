@@ -321,6 +321,11 @@ chmod 664 /etc/unbound/*.conf
 # Remove a trava de segurança do kernel (AppArmor) para autorizar a gravação de logs externos
 aa-complain /usr/sbin/unbound || true
 
+# Validação segura das chaves raiz do Unbound
+if [ -x /usr/sbin/unbound-anchor ]; then
+    /usr/sbin/unbound-anchor || true
+fi
+
 # Concede direitos para o usuário PHP executar reloads suaves sem derrubar o cache do Unbound
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
@@ -397,11 +402,11 @@ chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
 
 # Ajustar permissões globais e liberar o MTR
-chown -R www-data:www-data /var/html/isp-client || chown -R www-data:www-data /var/www/html/isp-client
+chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
 chmod -s /usr/bin/mtr || true
 chmod -s /usr/libexec/mtr-packet 2>/dev/null || true
-chmod -s /usr/lib/mtr/mtr-packet 2>/dev/null || true
+chmod -s /usr/bin/mtr-packet 2>/dev/null || true
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/mtr" > /etc/sudoers.d/www-data-mtr
 chmod 440 /etc/sudoers.d/www-data-mtr
 
