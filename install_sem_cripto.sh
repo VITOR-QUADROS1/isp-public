@@ -101,7 +101,7 @@ echo "====================================================================="
 echo "👉 PASSO OBRIGATÓRIO:"
 echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
 echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT de laboratório."
-=====================================================================
+echo "====================================================================="
 echo ""
 
 read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CONFIRMACAO
@@ -320,30 +320,8 @@ echo "[*] Aplicando patch de engenharia nas queries de auditoria do FreeRADIUS..
 sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply, nasipaddress, authdate, callingstationid, nasportid)/g' /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
-# ====================================================================
-# 🔥 POLÍTICA DE LOCKOUT BLINDADA E PORTÁTIL (CORREÇÃO DE PARSER UNLANG)
-# ====================================================================
-echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
-cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
-    # Transfere a query de contagem para uma variável inteira isolando do condicional
-    update control {
-        Tmp-Integer-0 := "%{sql:SELECT COUNT(*) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes'}"
-    }
-
-    # Validação matemática limpa e nativa (Garante 100% de estabilidade no boot)
-    if (control:Tmp-Integer-0 >= 5) {
-        update reply {
-            Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
-        }
-        update control {
-            Tmp-String-0 := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
-        }
-        reject
-    }
-EOF_POLICY
-sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/default
-sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/inner-tunnel
-rm -f /tmp/radius_block_policy.conf
+# 🎯 ENGENHARIA DE OPERADORA: Injeta o corte de brute force por subquery direto no barramento SQL (Garante 100% de estabilidade de boot)
+sed -i "s/WHERE username = '%{SQL-User-Name}' ORDER BY id/WHERE username = '%{SQL-User-Name}' AND (SELECT COUNT(*) FROM radpostauth WHERE username = '%{SQL-User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{SQL-User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes' | tr -d '\r' ) < 5 ORDER BY id/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
 # Permite que o PHP (www-data) recarregue o FreeRADIUS nativamente via interface sem digitar senhas
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
@@ -542,9 +520,8 @@ find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
 # Inicializando e acordando todos os serviços
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound routinator krill freeradius
-systemctl reset-failed krill || true
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service routinator krill freeradius
+systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius
+systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 

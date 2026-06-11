@@ -113,7 +113,7 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp"
 
 # Configurar Servidor Web Nginx (HTTPS) na Porta 8081
-echo "[*] Configurando Servidor Web Nginx para a部署 porta 8081 (HTTPS)..."
+echo "[*] Configurando Servidor Web Nginx para a porta 8081 (HTTPS)..."
 cat << 'XML' > /etc/nginx/sites-available/isp-client
 server {
     listen 8081 ssl default_server;
@@ -269,40 +269,18 @@ CLIENTS_CONF
 
 chown -R freerad:freerad /etc/freeradius/3.0/
 
-# Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS
+# Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS (Sem quebrar o sqlippool)
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
 
-# 🎯 SINCRONISMO AVANÇADO DE CAMPOS DE LOG EM QUERIES.CONF DO FREERADIUS
-echo "[*] Aplicando patch de engenharia nas queries de auditoria do FreeRADIUS..."
+# 🎯 SINCRONISMO AVANÇADO DE CAMPOS DE LOG E LOCKOUT NATIVO EM QUERIES.CONF
+echo "[*] Injetando política de brute force e auditoria expandida nas consultas do FreeRADIUS..."
 sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply, nasipaddress, authdate, callingstationid, nasportid)/g' /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
-# ====================================================================
-# 🔥 POLÍTICA DE LOCKOUT BLINDADA E PORTÁTIL (CORREÇÃO DE PARSER UNLANG)
-# ====================================================================
-echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
-cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
-    # Transfere a query de contagem para uma variável inteira isolando do condicional
-    update control {
-        Tmp-Integer-0 := "%{sql:SELECT COUNT(*) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes'}"
-    }
-
-    # Validação matemática limpa e nativa (Garante 100% de estabilidade no boot)
-    if (control:Tmp-Integer-0 >= 5) {
-        update reply {
-            Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
-        }
-        update control {
-            Tmp-String-0 := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
-        }
-        reject
-    }
-EOF_POLICY
-sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/default
-sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/inner-tunnel
-rm -f /tmp/radius_block_policy.conf
+# 🎯 ENGENHARIA DE OPERADORA: Injeta o corte de brute force por subquery direto no barramento SQL (Garante 100% de estabilidade de boot)
+sed -i "s/WHERE username = '%{SQL-User-Name}' ORDER BY id/WHERE username = '%{SQL-User-Name}' AND (SELECT COUNT(*) FROM radpostauth WHERE username = '%{SQL-User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{SQL-User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes') < 5 ORDER BY id/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
 # Permite que o PHP (www-data) recarregue o FreeRADIUS nativamente via interface sem digitar senhas
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
@@ -317,6 +295,7 @@ touch /var/log/unbound/unbound.log
 chown -R unbound:unbound /var/log/unbound
 chmod 644 /var/log/unbound/unbound.log
 
+# Escreve a arquitetura limpa de includes do Unbound
 cat << 'EOF2' > /etc/unbound/unbound.conf
 include: /etc/unbound/unbound.conf.d/remote-control.conf
 server:
@@ -352,6 +331,7 @@ extended-statistics: yes
 statistics-cumulative: no
 EOF2
 
+# Inicializa os arquivos planos de tabelas dinâmicas do Unbound
 cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
@@ -360,20 +340,25 @@ touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf
 chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf
 chmod 664 /etc/unbound/*.conf
 
+# Remove a trava de segurança do kernel (AppArmor) para autorizar a gravação de logs externos
 aa-complain /usr/sbin/unbound || true
 
+# Validação segura das chaves raiz do Unbound
 if [ -x /usr/sbin/unbound-anchor ]; then
     /usr/sbin/unbound-anchor || true
 fi
 
+# Concede direitos para o usuário PHP executar reloads suaves sem derrubar o cache do Unbound
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
+# Configura o ambiente virtual Python exclusivo para os daemons de métricas de rede
 echo "[*] Configurando ambiente virtual Python e dependências de NOC..."
 mkdir -p /var/www/html/isp-client/ferramentas/dns
 python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install flask psycopg2-binary reportlab
 
+# Cria a unidade Systemd para monitoramento contínuo dos logs do Unbound
 cat << 'EOF2' > /etc/systemd/system/dns-metrics-collector.service
 [Unit]
 Description=VisaoSoft DNS Metrics Daemon Collector
