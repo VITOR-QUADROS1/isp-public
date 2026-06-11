@@ -268,6 +268,9 @@ chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
 # 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA
+echo "[*] Expurgando caches e restaurando arquivos originais limpos do FreeRADIUS..."
+apt-get install -y --reinstall -o Dpkg::Options::="--force-confnew" freeradius freeradius-postgresql
+
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {

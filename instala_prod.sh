@@ -227,6 +227,10 @@ chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
 # 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA
+echo "[*] Expurgando caches e restaurando arquivos originais limpos do FreeRADIUS..."
+# 🔥 EXPURGO: Remove e força a reconfiguração limpa dos arquivos que o sed quebrou antes
+apt-get install -y --reinstall -o Dpkg::Options::="--force-confnew" freeradius freeradius-postgresql
+
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
@@ -437,7 +441,7 @@ mkdir -p /var/www/html/isp-client/flow/data
 echo "[]" > /var/www/html/isp-client/flow/data/flows.json
 echo "{}" > /var/www/html/isp-client/flow/data/stats.json
 rm -f /var/www/html/isp-client/flow/data/templates.json || true
-chown -R www-data:www-data /var/www/html/isp-client/flow/data
+chown -R www-data:www-data /var/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
 
 # Ajustar permissões globais e liberar o MTR
