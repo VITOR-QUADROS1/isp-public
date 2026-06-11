@@ -34,14 +34,14 @@ systemctl daemon-reload || true
 # 0.2 Configurar Repositórios do Debian Minimal
 echo "[*] Configurando repositórios oficiais do Debian 12 (Internet)..."
 cat << 'EOF2' > /etc/apt/sources.list
-deb http://deb.debian.org/debian/ bookworm main bandwidth non-free non-free-firmware
-deb-src http://deb.debian.org/debian/ bookworm main bandwidth non-free non-free-firmware
+deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
 
-deb http://security.debian.org/debian-security bookworm-security main bandwidth non-free non-free-firmware
-deb-src http://security.debian.org/debian-security bookworm-security main bandwidth non-free non-free-firmware
+deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 
-deb http://deb.debian.org/debian/ bookworm-updates main bandwidth non-free non-free-firmware
-deb-src http://deb.debian.org/debian/ bookworm-updates main bandwidth non-free non-free-firmware
+deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
+deb-src http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
 EOF2
 
 # 1. Atualizar o Sistema com a nova lista de internet
@@ -205,7 +205,7 @@ systemctl restart postgresql
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS AVANÇADAS DO AUDIT LOG
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR (FIXED: Redirecionamento SQL mestre corrigido)
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código existam por padrão
@@ -214,7 +214,7 @@ ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT t
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
--- 🎯 EXPANSÃO OPERACIONAL: Garante as colunas para IP Origem e Porta no Histórico RADIUS
+-- Garante as colunas para IP Origem e Porta no Histórico RADIUS de auditoria
 ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS callingstationid character varying(50) DEFAULT '';
 ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS nasportid character varying(32) DEFAULT '';
 
@@ -321,7 +321,7 @@ sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply
 sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
 # ====================================================================
-# 🔥 POLÍTICA DE BRUTE FORCE MESTRE: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
+# 🔥 POLÍTICA DE BRUTE FORCE MESTRE CORRIGIDA: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
 # ====================================================================
 echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
 cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
@@ -330,8 +330,10 @@ cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
         update reply {
             Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
         }
-        # Injeta log cosmético avançado com IP Origem e Porta do NAS
-         RolandLog := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
+        # CORREÇÃO SINTAXE: Executa a injeção via bloco de controle local legítimo do Unlang
+        update control {
+            &Tmp-String-0 := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
+        }
         reject
     }
 EOF_POLICY
@@ -425,31 +427,6 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF2
-# ====================================================================
-
-# ====================================================================
-# 🛡️ ESQUELETO OPERACIONAL DE SINALIZAÇÃO DO ENTORNO RPKI (NLNET LABS)
-# ====================================================================
-echo "[*] Configurando daemons modulares do RPKI (Routinator e Krill)..."
-cat << 'EOF2' > /etc/routinator/routinator.conf
-repository-dir = "/var/lib/routinator/repository"
-rtr-listen = ["0.0.0.0:3323"]
-http-listen = ["127.0.0.1:8323"]
-log-level = "info"
-EOF2
-chown -R routinator:routinator /var/lib/routinator /etc/routinator
-
-cat << 'EOF2' > /etc/krill.conf
-ip = "0.0.0.0"
-port = 3000
-auth_token = "d7kLj4HxFlgLIk4DxMgXLMU2GAdkIGVu"
-data_dir = "/var/lib/krill/data"
-log_type = "syslog"
-log_level = "info"
-EOF2
-mkdir -p /var/log/krill /var/lib/krill/data
-chown krill:krill /etc/krill.conf
-chown -R krill:krill /var/log/krill /var/lib/krill
 # ====================================================================
 
 # Implantação de Serviço Nativo do Coletor NetFlow (Híbrido v5/v9)

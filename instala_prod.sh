@@ -48,7 +48,7 @@ EOF2
 echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
 
-# 2. Instalar todas as dependências do sistema, redes, recursivo, e-mail e freeradius
+# 2. Instalar todas as dependências do systema, redes, recursivo, e-mail e freeradius
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron freeradius freeradius-postgresql
 
@@ -164,7 +164,7 @@ systemctl restart postgresql
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS AVANÇADAS DO AUDIT LOG
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR DE FÁBRICA
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código atual existam por padrão
@@ -173,7 +173,7 @@ ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT t
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
--- 🎯 EXPANSÃO OPERACIONAL: Garante as colunas para IP Origem e Porta no Histórico RADIUS
+-- Garante as colunas para IP Origem e Porta no Histórico RADIUS de auditoria
 ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS callingstationid character varying(50) DEFAULT '';
 ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS nasportid character varying(32) DEFAULT '';
 
@@ -280,7 +280,7 @@ sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply
 sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
 # ====================================================================
-# 🔥 POLÍTICA DE BRUTE FORCE MESTRE: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
+# 🔥 POLÍTICA DE BRUTE FORCE MESTRE CORRIGIDA: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
 # ====================================================================
 echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
 cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
@@ -289,8 +289,10 @@ cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
         update reply {
             Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
         }
-        # Injeta log cosmético avançado com IP Origem e Porta do NAS
-         RolandLog := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
+        # CORREÇÃO SINTAXE: Executa a injeção via bloco de controle local legítimo do Unlang
+        update control {
+            &Tmp-String-0 := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
+        }
         reject
     }
 EOF_POLICY
@@ -298,7 +300,7 @@ sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-
 sed -i '/authorize {/r /tmp/radius_block_policy.conf' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 rm -f /tmp/radius_block_policy.conf
 
-# Permite que o PHP (www-data) recarregue o FreeRADIUS suavemente via interface sem digitar senhas
+# Permite que o PHP (www-data) recarregue o FreeRADIUS nativamente via interface sem digitar senhas
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
 chmod 440 /etc/sudoers.d/www-data-freeradius
 
