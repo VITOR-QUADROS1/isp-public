@@ -113,7 +113,7 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
   -subj "/C=BR/ST=RS/L=PortoAlegre/O=VisaoSoft/OU=NOC/CN=visao-soft-isp"
 
 # Configurar Servidor Web Nginx (HTTPS) na Porta 8081
-echo "[*] Configurando Servidor Web Nginx para a porta 8081 (HTTPS)..."
+echo "[*] Configurando Servidor Web Nginx para a部署 porta 8081 (HTTPS)..."
 cat << 'XML' > /etc/nginx/sites-available/isp-client
 server {
     listen 8081 ssl default_server;
@@ -252,7 +252,7 @@ sql {
 RADIUS_CONF
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
 
-# 🎯 BLINDAGEM PORTÁTIL: clients.conf limpo contendo estritamente o localhost de fábrica
+# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf limpo contendo estritamente o localhost de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
 client localhost {
     ipaddr = 127.0.0.1
@@ -280,18 +280,22 @@ sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply
 sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
 # ====================================================================
-# 🔥 POLÍTICA DE BRUTE FORCE BLINDADA: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
+# 🔥 POLÍTICA DE LOCKOUT BLINDADA E PORTÁTIL (CORREÇÃO DE PARSER UNLANG)
 # ====================================================================
 echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
 cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
-    # Bloqueio temporário central de 30 minutos após 5 falhas consecutivas
-    if ("%{sql:SELECT COUNT(*) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes'}" >= 5) {
+    # Transfere a query de contagem para uma variável inteira isolando do condicional
+    update control {
+        Tmp-Integer-0 := "%{sql:SELECT COUNT(*) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes'}"
+    }
+
+    # Validação matemática limpa e nativa (Garante 100% de estabilidade no boot)
+    if (control:Tmp-Integer-0 >= 5) {
         update reply {
             Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
         }
-        # 🎯 SOLUÇÃO DA FALHA: Executa a injeção via avaliação condicional direta sem quebrar o interpretador Unlang
-        if ("%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}" == "") {
-            reject
+        update control {
+            Tmp-String-0 := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
         }
         reject
     }

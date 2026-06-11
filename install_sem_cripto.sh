@@ -101,7 +101,7 @@ echo "====================================================================="
 echo "👉 PASSO OBRIGATÓRIO:"
 echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
 echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT de laboratório."
-echo "====================================================================="
+=====================================================================
 echo ""
 
 read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CONFIRMACAO
@@ -205,7 +205,7 @@ systemctl restart postgresql
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR (FIXED: Correção do descriptor SQL de Lab)
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código existam por padrão
@@ -321,18 +321,22 @@ sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply
 sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
 
 # ====================================================================
-# 🔥 POLÍTICA DE BRUTE FORCE MESTRE CORRIGIDA: LOCKOUT DE 30 MINUTOS APÓS 5 FALHAS
+# 🔥 POLÍTICA DE LOCKOUT BLINDADA E PORTÁTIL (CORREÇÃO DE PARSER UNLANG)
 # ====================================================================
 echo "[*] Injetando motor de política de Lockout temporário por Brute Force..."
 cat << 'EOF_POLICY' > /tmp/radius_block_policy.conf
-    # Bloqueio temporário central de 30 minutos após 5 falhas consecutivas
-    if ("%{sql:SELECT COUNT(*) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes'}" >= 5) {
+    # Transfere a query de contagem para uma variável inteira isolando do condicional
+    update control {
+        Tmp-Integer-0 := "%{sql:SELECT COUNT(*) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Reject' AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = '%{User-Name}' AND reply = 'Access-Accept'), '1970-01-01'::timestamp) AND authdate > NOW() - INTERVAL '30 minutes'}"
+    }
+
+    # Validação matemática limpa e nativa (Garante 100% de estabilidade no boot)
+    if (control:Tmp-Integer-0 >= 5) {
         update reply {
             Reply-Message := "Conta bloqueada temporariamente por 30 minutos por excesso de tentativas."
         }
-        # 🎯 CORREÇÃO DEFINITIVA: Injeta via avaliação de string condicional pura, blindando o boot do FreeRADIUS
-        if ("%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}" == "") {
-            reject
+        update control {
+            Tmp-String-0 := "%{sql:INSERT INTO radpostauth (username, pass, reply, nasipaddress, authdate, callingstationid, nasportid) VALUES ('%{User-Name}', 'Bloqueado Central', 'Access-Reject', '%{NAS-IP-Address}', NOW(), '%{Calling-Station-Id}', '%{NAS-Port}')}"
         }
         reject
     }
