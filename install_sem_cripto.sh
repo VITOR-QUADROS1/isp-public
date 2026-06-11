@@ -186,7 +186,7 @@ XML
 ln -sf /etc/nginx/sites-available/isp-client /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default || true
 
-# Configuração do Banco de Dados PostgreSQL (FIXED: Aspas e comando psql estruturado)
+# Configuração do Banco de Dados PostgreSQL
 echo "[*] Configurando banco de dados PostgreSQL..."
 su - postgres -c "psql -c \"CREATE USER isp_client_app WITH PASSWORD 'Union@2026!';\"" || true
 su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_app;\"" || true
@@ -205,7 +205,7 @@ systemctl restart postgresql
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR (FIXED: Redirecionamento de descriptor corrigido)
+# 🛠️ CORREÇÃO DE PRIVILÉGIOS E CRIAÇÃO DA VIEW DE LOCKOUT AUTOMÁTICO (ANTI-CRASH)
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
 -- Garante que as colunas active exigidas pelo código existam por padrão
@@ -214,9 +214,33 @@ ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT t
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
+-- Garante as colunas para IP Origem e Porta no Histórico RADIUS de auditoria
+ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS callingstationid character varying(50) DEFAULT '';
+ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS nasportid character varying(32) DEFAULT '';
+
+-- 🎯 ENGENHARIA DE OPERADORA: Cria a View que bloqueia o usuário por 30 minutos após 5 erros sem mexer em arquivos
+CREATE OR REPLACE VIEW vw_radcheck AS
+SELECT id, username, attribute, op, value FROM radcheck
+UNION ALL
+SELECT 
+    999999 AS id,
+    username,
+    'Auth-Type'::varchar AS attribute,
+    ':='::varchar AS op,
+    'Reject'::varchar AS value
+FROM (
+    SELECT username FROM radpostauth r
+    WHERE reply = 'Access-Reject' 
+      AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = r.username AND reply = 'Access-Accept'), '1970-01-01'::timestamp)
+      AND authdate > NOW() - INTERVAL '30 minutes'
+    GROUP BY username
+    HAVING COUNT(*) >= 5
+) as blocked;
+
 -- Concede direitos totais para o usuário PHP manipular tabelas e sequências
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO isp_client_app;
+GRANT ALL PRIVILEGES ON vw_radcheck TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
@@ -244,6 +268,13 @@ chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
 # 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA
+echo "[*] Expurgando caches e restaurando arquivos originais limpos do FreeRADIUS..."
+apt-get install -y --reinstall -o Dpkg::Options::="--force-confnew" freeradius freeradius-postgresql
+
+# 🎯 FIX ANTI-CRASH: Força a criação correta dos links simbólicos padrão para o sed nunca falhar
+ln -sf /etc/freeradius/3.0/sites-available/default /etc/freeradius/3.0/sites-enabled/default
+ln -sf /etc/freeradius/3.0/sites-available/inner-tunnel /etc/freeradius/3.0/sites-enabled/inner-tunnel
+
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
@@ -255,7 +286,7 @@ sql {
     password = "Union@2026!"
     radius_db = "isp_client_portal"
     client_table = "nas"
-    authcheck_table = "radcheck"
+    authcheck_table = "vw_radcheck"
     authreply_table = "radreply"
     groupcheck_table = "radgroupcheck"
     groupreply_table = "radgroupreply"
@@ -287,7 +318,7 @@ sql {
     }
 }
 RADIUS_CONF
-ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
+ln -sf /etc/freeradius/3.0/mods-enabled/sql /etc/freeradius/3.0/mods-enabled/sql || true
 
 # 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf limpo contendo estritamente o localhost de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
@@ -310,6 +341,15 @@ chown -R freerad:freerad /etc/freeradius/3.0/
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
+
+# 🎯 SINCRONISMO AVANÇADO DE CAMPOS DE LOG EM QUERIES.CONF DO FREERADIUS
+echo "[*] Aplicando patch de engenharia nas queries de auditoria do FreeRADIUS..."
+sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply, nasipaddress, authdate, callingstationid, nasportid)/g' /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
+sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
+
+# Permite que o PHP (www-data) recarregue o FreeRADIUS nativamente via interface sem digitar senhas
+echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
+chmod 440 /etc/sudoers.d/www-data-freeradius
 
 # ====================================================================
 # 🌐 CONFIGURAÇÃO INDUSTRIAL INTEGRADA DO DNS RECURSIVO UNBOUND
@@ -365,7 +405,6 @@ chmod 664 /etc/unbound/*.conf
 
 aa-complain /usr/sbin/unbound || true
 
-# Validação segura das chaves raiz do Unbound
 if [ -x /usr/sbin/unbound-anchor ]; then
     /usr/sbin/unbound-anchor || true
 fi
@@ -505,9 +544,8 @@ find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
 # Inicializando e acordando todos os serviços
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound routinator krill freeradius
-systemctl reset-failed krill || true
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service routinator krill freeradius
+systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius
+systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
