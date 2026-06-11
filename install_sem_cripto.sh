@@ -191,20 +191,20 @@ su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_a
 echo "[*] Importando tabelas limpas do sistema..."
 cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
 
-# 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes nativos na interface
+# 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes
 echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
 php /var/www/html/isp-client/backups/seed_backups.php
 
 # 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
--- Garante que as colunas active exigidas pelo código atual existam por padrão
+-- Garante que as colunas active exigidas pelo código existam por padrão
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
--- Concede direitos totais para o usuário PHP manipular tabelas e auto-incrementos (IDs)
+-- Concede direitos totais para o usuário PHP manipular tabelas e sequências
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
@@ -480,6 +480,13 @@ systemctl reset-failed krill || true
 systemctl restart unbound dns-metrics-collector.service netflow-collector.service routinator krill freeradius
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
+
+# 🌐 AUTO-RESOLUÇÃO BLINDADA LOCAL
+echo "[*] Fixando e blindando a auto-resolução DNS local..."
+chattr -i /etc/resolv.conf || true
+rm -f /etc/resolv.conf
+echo "nameserver 127.0.0.1" > /etc/resolv.conf
+chattr +i /etc/resolv.conf
 
 echo "===================================================="
 echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "

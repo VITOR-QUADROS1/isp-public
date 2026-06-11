@@ -87,7 +87,7 @@ echo "🔑 CHAVE DE LIBERAÇÃO DO SISTEMA (DEPLOY KEY)"
 echo "====================================================================="
 cat /root/.ssh/id_isp_client.pub
 echo "====================================================================="
-echo "👉 PASSO OBRIGATÓRIO:"
+echo "👉 PASSO OBRIGATOKIO:"
 echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
 echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT-PROD."
 echo "====================================================================="
@@ -383,7 +383,6 @@ chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
 
 # Ajustar permissões globais e liberar o MTR
-chown -R www-data:www-data /var/html/isp-client
 chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
 chmod -s /usr/bin/mtr || true
@@ -425,6 +424,13 @@ systemctl enable netflow-collector.service dns-metrics-collector.service unbound
 systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
+
+# 🌐 AUTO-RESOLUÇÃO BLINDADA LOCAL
+echo "[*] Fixando e blindando a auto-resolução DNS local..."
+chattr -i /etc/resolv.conf || true
+rm -f /etc/resolv.conf
+echo "nameserver 127.0.0.1" > /etc/resolv.conf
+chattr +i /etc/resolv.conf
 
 echo "===================================================="
 echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
