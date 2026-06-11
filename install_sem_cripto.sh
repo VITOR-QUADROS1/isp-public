@@ -14,6 +14,13 @@ systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unb
 pkill -9 php-fpm || true
 pkill -9 php || true
 
+# Destrava o dpkg se ele veio quebrado de instalações anteriores abortadas
+mkdir -p /etc/freeradius || true
+dpkg --configure -a || true
+apt-get install -f -y || true
+apt-get purge -y freeradius freeradius-postgresql freeradius-common freeradius-config || true
+rm -rf /etc/freeradius || true
+
 # Derruba conexões presas no Postgres e limpa o banco e o usuário antigo
 if systemctl is-active --quiet postgresql; then
     su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" || true
@@ -50,7 +57,7 @@ apt-get update && apt-get upgrade -y
 
 # 2. Instalar todas as dependências do sistema, redes, recursivo, e-mail e freeradius
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
-apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron
+apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron freeradius freeradius-postgresql
 
 # 🔥 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI COM CAPTURA DIRETTA DE GPG (SEM INTERATIVIDADE)
 echo "[*] Sincronizando chaves e adicionando repositório oficial NLnet Labs..."
@@ -98,10 +105,10 @@ echo "🔑 CHAVE DE LIBERAÇÃO DO SISTEMA (DEPLOY KEY)"
 echo "====================================================================="
 cat /root/.ssh/id_isp_client.pub
 echo "====================================================================="
-👉 PASSO OBRIGATÓRIO:
-1. Copie a chave acima completa (começando em ssh-ed25519 até o fim).
-2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT de laboratório.
-=====================================================================
+echo "👉 PASSO OBRIGATÓRIO:"
+echo "1. Copie a chave acima completa (começando em ssh-ed25519 até o fim)."
+echo "2. Cadastre no GitHub da VisãoSoft como Deploy Key EXCLUSIVA do projeto ISP-CLIENT de laboratório."
+echo "====================================================================="
 echo ""
 
 read -p "Após liberar o acesso no seu GitHub, digite 'OK' e aperte Enter: " CONFIRMACAO
@@ -243,15 +250,8 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA VALIDA (PURGA COMPLETA ANTI-ERRO RESIDUAL)
-echo "[*] Expurgando completamente a instalação corrompida anterior do FreeRADIUS..."
-apt-get purge -y freeradius freeradius-postgresql freeradius-common freeradius-config freeradius-utils || true
-rm -rf /etc/freeradius || true
-
-echo "[*] Instalando FreeRADIUS limpo de fábrica e gerando diretórios..."
-apt-get install -y freeradius freeradius-postgresql
-
-echo "[*] Escrevendo arquivo modular estável do PostgreSQL..."
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA ORIGINAL ESTÁVEL
+echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
     driver = "rlm_sql_postgresql"

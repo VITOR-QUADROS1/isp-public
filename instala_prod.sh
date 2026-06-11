@@ -14,6 +14,13 @@ systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unb
 pkill -9 php-fpm || true
 pkill -9 php || true
 
+# 🔥 DESTRAVA MESTRE: Corrige o gerenciador de pacotes do Linux se veio quebrado de telas anteriores
+mkdir -p /etc/freeradius || true
+dpkg --configure -a || true
+apt-get install -f -y || true
+apt-get purge -y freeradius freeradius-postgresql freeradius-common freeradius-config || true
+rm -rf /etc/freeradius || true
+
 # Derruba conexões presas no Postgres e limpa o banco e o usuário antigo
 if systemctl is-active --quiet postgresql; then
     su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" || true
@@ -48,9 +55,9 @@ EOF2
 echo "[*] Atualizando a lista de pacotes do Debian 12..."
 apt-get update && apt-get upgrade -y
 
-# 2. Instalar todas as dependências do sistema, redes, recursivo, e-mail e linguagens
-echo "[*] Instalando ferramentas de rede, recursivo, e-mail e linguagens..."
-apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron
+# 2. Instalar todas as dependências do sistema, redes, recursivo, e-mail e freeradius
+echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
+apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron freeradius freeradius-postgresql
 
 # 3. Instalar o Nginx e os Bancos de Dados
 echo "[*] Instalando Nginx, PostgreSQL e SQLite..."
@@ -202,15 +209,8 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA VALIDA (REMOÇÃO DE RESÍDUOS CORROMPIDOS)
-echo "[*] Expurgando completamente a instalação corrompida anterior do FreeRADIUS..."
-apt-get purge -y freeradius freeradius-postgresql freeradius-common freeradius-config freeradius-utils || true
-rm -rf /etc/freeradius || true
-
-echo "[*] Instalando FreeRADIUS limpo de fábrica e gerando diretórios..."
-apt-get install -y freeradius freeradius-postgresql
-
-echo "[*] Escrevendo arquivo modular estável do PostgreSQL..."
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA (BASELINE ESTÁVEL)
+echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
     driver = "rlm_sql_postgresql"
@@ -255,7 +255,7 @@ sql {
 RADIUS_CONF
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
 
-# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf original estável de fábrica
+# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf limpo contendo estritamente o localhost de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
 client localhost {
     ipaddr = 127.0.0.1
@@ -270,15 +270,13 @@ client localhost_ipv6 {
 }
 CLIENTS_CONF
 
-chown -R freerad:freerad /etc/freeradius/3.0/
+# Garante o sincronismo do arquivo e permissões do FreeRADIUS
+chown freerad:freerad /etc/freeradius/3.0/clients.conf
 
-# Ativa o modulo SQL nativo nas esteiras do FreeRADIUS de fábrica (Sem códigos experimentais)
+# Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS (Sem quebrar o sqlippool)
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
-
-# Concede direitos de reload suave para o usuário PHP
-echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers
 
 # ====================================================================
 # 🌐 CONFIGURAÇÃO INDUSTRIAL INTEGRADA DO DNS RECURSIVO UNBOUND
