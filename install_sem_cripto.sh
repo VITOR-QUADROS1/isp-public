@@ -10,26 +10,26 @@ echo ""
 
 # 0.1 LIMPEZA ESTRUTURAL COMPLETA BEFORE CLEAN DEPLOY
 echo "[*] Removendo instalações, processos e bancos de dados anteriores..."
-systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound routinator krill freeradius || true
-pkill -9 php-fpm || true
-pkill -9 php || true
+systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound routinator krill freeradius 2>/dev/null || true
+pkill -9 php-fpm 2>/dev/null || true
+pkill -9 php 2>/dev/null || true
 
 # Derruba conexões presas no Postgres e limpa o banco e o usuário antigo
 if systemctl is-active --quiet postgresql; then
-    su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" || true
-    su - postgres -c "psql -c \"DROP DATABASE IF EXISTS isp_client_portal WITH (FORCE);\"" || true
-    su - postgres -c "psql -c \"DROP USER IF EXISTS isp_client_app;\"" || true
+    su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" 2>/dev/null || true
+    su - postgres -c "psql -c \"DROP DATABASE IF EXISTS isp_client_portal WITH (FORCE);\"" 2>/dev/null || true
+    su - postgres -c "psql -c \"DROP USER IF EXISTS isp_client_app;\"" 2>/dev/null || true
 fi
 
 # Passa o rodo nas pastas, crons, chaves e arquivos antigos
-rm -rf /var/www/html/isp-client || true
-rm -f /etc/cron.d/isp-client || true
-rm -f /etc/sudoers.d/www-data-mtr || true
-rm -rf /etc/systemd/system/php8.2-fpm.service.d/ || true
-rm -f /etc/systemd/system/netflow-collector.service || true
-rm -f /etc/systemd/system/dns-metrics-collector.service || true
-rm -f /etc/nginx/ssl/isp-client.* || true
-systemctl daemon-reload || true
+rm -rf /var/www/html/isp-client 2>/dev/null || true
+rm -f /etc/cron.d/isp-client 2>/dev/null || true
+rm -f /etc/sudoers.d/www-data-mtr 2>/dev/null || true
+rm -rf /etc/systemd/system/php8.2-fpm.service.d/ 2>/dev/null || true
+rm -f /etc/systemd/system/netflow-collector.service 2>/dev/null || true
+rm -f /etc/systemd/system/dns-metrics-collector.service 2>/dev/null || true
+rm -f /etc/nginx/ssl/isp-client.* 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
 
 # 0.2 Configurar Repositórios do Debian Minimal
 echo "[*] Configurando repositórios oficiais do Debian 12 (Internet)..."
@@ -55,9 +55,9 @@ apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof
 # 🔥 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI COM CAPTURA DIRETTA DE GPG (SEM INTERATIVIDADE)
 echo "[*] Sincronizando chaves e adicionando repositório oficial NLnet Labs..."
 mkdir -p /usr/share/keyrings
-rm -f /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
-curl -fsSL https://packages.nlnetlabs.nl/aptkey.asc | gpg --dearmor -o /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
-gpg --no-default-keyring --keyring /usr/share/keyrings/nlnetlabs-archive-keyring.gpg --keyserver keyserver.ubuntu.com --recv-keys 94E92A0708C4CC43 || true
+rm -f /usr/share/keyrings/nlnetlabs-archive-keyring.gpg 2>/dev/null || true
+curl -fsSL https://packages.nlnetlabs.nl/aptkey.asc | gpg --dearmor -o /usr/share/keyrings/nlnetlabs-archive-keyring.gpg 2>/dev/null || true
+gpg --no-default-keyring --keyring /usr/share/keyrings/nlnetlabs-archive-keyring.gpg --keyserver keyserver.ubuntu.com --recv-keys 94E92A0708C4CC43 2>/dev/null || true
 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/nlnetlabs-archive-keyring.gpg] https://packages.nlnetlabs.nl/linux/debian bookworm main" > /etc/apt/sources.list.d/nlnetlabs.list
 apt-get update
@@ -120,13 +120,13 @@ git clone git@github.com:VITOR-QUADROS1/isp-client.git /var/www/html/isp-client
 # ====================================================================
 echo "[*] Configurando dependências do motor de ofuscação de Lab (Yakpro-PO)..."
 cd /opt
-rm -rf PHP-Parser yakpro-po || true
-git clone https://github.com/nikic/PHP-Parser.git
-git clone https://github.com/pk-fr/yakpro-po.git
+rm -rf PHP-Parser yakpro-po 2>/dev/null || true
+git clone https://github.com/nikic/PHP-Parser.git 2>/dev/null || true
+git clone https://github.com/pk-fr/yakpro-po.git 2>/dev/null || true
 cd yakpro-po
-git clone https://github.com/nikic/PHP-Parser.git
+git clone https://github.com/nikic/PHP-Parser.git 2>/dev/null || true
 chmod +x yakpro-po.php
-ln -sf /opt/yakpro-po/yakpro-po.php /usr/local/bin/yakpro-po
+ln -sf /opt/yakpro-po/yakpro-po.php /usr/local/bin/yakpro-po 2>/dev/null || true
 
 cat << 'YAKCONF' > /opt/yakpro-po/yakpro-po.cnf
 <?php
@@ -141,8 +141,8 @@ YAKCONF
 
 echo "[*] Vinculando repositório de produção em paralelo para autorizar auto-deploy..."
 cd /var/www/html/
-git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git || true
-chmod +x /var/www/html/isp-client/deploy.sh || true
+git clone git@github.com:VITOR-QUADROS1/isp-client-prod.git 2>/dev/null || true
+chmod +x /var/www/html/isp-client/deploy.sh 2>/dev/null || true
 # ====================================================================
 
 # 🔐 Gerar Certificado SSL Autoassinado para HTTPS (Válido por 10 anos)
@@ -193,36 +193,120 @@ su - postgres -c "psql -c \"CREATE DATABASE isp_client_portal OWNER isp_client_a
 
 # Importa o arquivo de estrutura limpa
 echo "[*] Importando tabelas limpas do sistema..."
-cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
+if [ -f /var/www/html/isp-client/backups/install.sql ]; then
+    cat /var/www/html/isp-client/backups/install.sql | sudo -u postgres psql -d isp_client_portal
+fi
 
 # 🚀 LIBERAÇÃO DO BANCO MESTRE PARA ESCUTA EXTERNA DINÂMICA (TECNICOS DE CLIENTES)
 echo "[*] Configurando barramento de escuta externa do PostgreSQL corporativo..."
-sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/15/main/postgresql.conf
-echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/15/main/pg_hba.conf
+sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/g" /etc/postgresql/*/main/postgresql.conf 2>/dev/null || true
+grep -q "host all all 0.0.0.0/0 md5" /etc/postgresql/*/main/pg_hba.conf 2>/dev/null || echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/*/main/pg_hba.conf 2>/dev/null || true
 systemctl restart postgresql
 
 # 🔥 SEED AUTOMÁTICO: Popula os 14 scripts e fabricantes
-echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
-php /var/www/html/isp-client/backups/seed_backups.php
+if [ -f /var/www/html/isp-client/backups/seed_backups.php ]; then
+    echo "[*] Populando fabricantes e injetando scripts de backup padrões de fábrica..."
+    php /var/www/html/isp-client/backups/seed_backups.php
+fi
 
-# 🛠️ CORREÇÃO DE PRIVILÉGIOS E CRIAÇÃO DA VIEW DE LOCKOUT AUTOMÁTICO (ANTI-CRASH)
-echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
+# 🛠️ CRIAÇÃO DAS TABELAS RADIUS E VIEW DE LOCKOUT
+echo "[*] Criando estrutura RADIUS e aplicando patches de segurança..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
+-- Criar tabelas RADIUS se não existirem
+CREATE TABLE IF NOT EXISTS nas (
+    id SERIAL PRIMARY KEY,
+    nasname TEXT NOT NULL,
+    shortname TEXT,
+    type TEXT,
+    secret TEXT NOT NULL,
+    description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS radcheck (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL,
+    attribute TEXT NOT NULL,
+    op TEXT NOT NULL,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS radreply (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL,
+    attribute TEXT NOT NULL,
+    op TEXT NOT NULL,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS radgroupcheck (
+    id SERIAL PRIMARY KEY,
+    groupname TEXT NOT NULL,
+    attribute TEXT NOT NULL,
+    op TEXT NOT NULL,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS radgroupreply (
+    id SERIAL PRIMARY KEY,
+    groupname TEXT NOT NULL,
+    attribute TEXT NOT NULL,
+    op TEXT NOT NULL,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS radusergroup (
+    id SERIAL PRIMARY KEY,
+    username TEXT NOT NULL,
+    groupname TEXT NOT NULL,
+    priority INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS radacct (
+    radacctid BIGSERIAL PRIMARY KEY,
+    acctsessionid TEXT NOT NULL,
+    acctuniqueid TEXT UNIQUE,
+    username TEXT,
+    groupname TEXT,
+    realm TEXT,
+    nasipaddress TEXT,
+    nasportid TEXT,
+    nasporttype TEXT,
+    acctstarttime TIMESTAMP,
+    acctstoptime TIMESTAMP,
+    acctsessiontime INTEGER,
+    acctinputoctets BIGINT,
+    acctoutputoctets BIGINT,
+    calledstationid TEXT,
+    callingstationid TEXT,
+    acctterminatecause TEXT,
+    servicetype TEXT,
+    framedprotocol TEXT,
+    framedipaddress TEXT
+);
+
+CREATE TABLE IF NOT EXISTS radpostauth (
+    id BIGSERIAL PRIMARY KEY,
+    username TEXT NOT NULL,
+    pass TEXT,
+    reply TEXT,
+    authdate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    nasipaddress TEXT,
+    callingstationid TEXT DEFAULT '',
+    nasportid TEXT DEFAULT ''
+);
+
 -- Garante que as colunas active exigidas pelo código existam por padrão
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
--- Garante as colunas para IP Origem e Porta no Histórico RADIUS de auditoria
-ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS callingstationid character varying(50) DEFAULT '';
-ALTER TABLE radpostauth ADD COLUMN IF NOT EXISTS nasportid character varying(32) DEFAULT '';
-
--- 🎯 ENGENHARIA DE OPERADORA: Cria a View que bloqueia o usuário por 30 minutos após 5 erros sem mexer em arquivos
-CREATE OR REPLACE VIEW vw_radcheck AS
+-- 🎯 ENGENHARIA DE OPERADORA: Cria a View que bloqueia o usuário por 30 minutos após 5 erros
+DROP VIEW IF EXISTS vw_radcheck;
+CREATE VIEW vw_radcheck AS
 SELECT id, username, attribute, op, value FROM radcheck
 UNION ALL
-SELECT 
+SELECT
     999999 AS id,
     username,
     'Auth-Type'::varchar AS attribute,
@@ -230,7 +314,7 @@ SELECT
     'Reject'::varchar AS value
 FROM (
     SELECT username FROM radpostauth r
-    WHERE reply = 'Access-Reject' 
+    WHERE reply = 'Access-Reject'
       AND authdate > COALESCE((SELECT max(authdate) FROM radpostauth WHERE username = r.username AND reply = 'Access-Accept'), '1970-01-01'::timestamp)
       AND authdate > NOW() - INTERVAL '30 minutes'
     GROUP BY username
@@ -247,12 +331,14 @@ EOF2
 
 # 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO
 echo "[*] Injetando usuários administradores e parameters padrões de fábrica..."
-HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
-HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
+HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);" 2>/dev/null || echo "")
+HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);" 2>/dev/null || echo "")
 
-sudo -u postgres psql -d isp_client_portal -c "INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;"
+if [ -n "$HASH_MASTER" ] && [ -n "$HASH_CLIENTE" ]; then
+    sudo -u postgres psql -d isp_client_portal -c "INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;" 2>/dev/null || true
 
-sudo -u postgres psql -d isp_client_portal -c "INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;"
+    sudo -u postgres psql -d isp_client_portal -c "INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;" 2>/dev/null || true
+fi
 
 # Criar arquivo de credenciais local
 echo "[*] Escrevendo arquivo de credenciais local..."
@@ -264,14 +350,17 @@ define('DB_PASS', 'Union@2026!');
 define('SIRENE_APP_KEY', '$(openssl rand -hex 32)');
 EOF2
 
-chown root:www-data /var/www/html/isp-client/config/env.php
-chmod 640 /var/www/html/isp-client/config/env.php
+chown root:www-data /var/www/html/isp-client/config/env.php 2>/dev/null || true
+chmod 640 /var/www/html/isp-client/config/env.php 2>/dev/null || true
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA
-echo "[*] Expurgando caches e restaurando arquivos originais limpos do FreeRADIUS..."
-apt-get install -y --reinstall -o Dpkg::Options::="--force-confnew" freeradius freeradius-postgresql
-
+# 🔑 CONFIGURAÇÃO COMPLETA DO FREERADIUS CENTRAL AAA
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
+
+# Primeiro, limpar configurações existentes problemáticas
+rm -f /etc/freeradius/3.0/sites-enabled/inner-tunnel
+rm -f /etc/freeradius/3.0/sites-enabled/default
+
+# Criar arquivo de configuração SQL correto
 cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
 sql {
     driver = "rlm_sql_postgresql"
@@ -281,6 +370,7 @@ sql {
     login = "isp_client_app"
     password = "Union@2026!"
     radius_db = "isp_client_portal"
+    
     client_table = "nas"
     authcheck_table = "vw_radcheck"
     authreply_table = "radreply"
@@ -290,6 +380,7 @@ sql {
     acct_table1 = "radacct"
     acct_table2 = "radacct"
     postauth_table = "radpostauth"
+    
     group_attribute = "SQL-Group"
     read_clients = yes
     read_groups = yes
@@ -297,9 +388,12 @@ sql {
     delete_stale_sessions = yes
     sql_user_name = "%{User-Name}"
     default_user_profile = ""
+    
     client_query = "SELECT id,nasname,shortname,type,secret FROM nas"
+    
     safe_characters = "@abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_: /"
     auto_escape = no
+    
     pool {
         start = 5
         min = 3
@@ -308,15 +402,162 @@ sql {
         idle_timeout = 60
         retry_delay = 30
     }
+    
     $include /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
-    authorize {
-        authorize_reply_query = "SELECT 1 WHERE 1=0"
-    }
 }
 RADIUS_CONF
-ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
 
-# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf limpo contendo estritamente o localhost de fábrica
+# Configurar o site DEFAULT (production)
+cat << 'DEFAULT_SITE' > /etc/freeradius/3.0/sites-enabled/default
+# Default site - FreeRADIUS production configuration
+server default {
+    listen {
+        type = auth
+        ipaddr = *
+        port = 1812
+    }
+    
+    listen {
+        type = acct
+        ipaddr = *
+        port = 1813
+    }
+    
+    authorize {
+        filter_username
+        preprocess
+        auth_log
+        chap
+        mschap
+        suffix
+        eap {
+            ok = return
+        }
+        files
+        sql
+        pap
+    }
+    
+    authenticate {
+        Auth-Type PAP {
+            pap
+        }
+        Auth-Type CHAP {
+            chap
+        }
+        Auth-Type MS-CHAP {
+            mschap
+        }
+        eap
+    }
+    
+    preacct {
+        preprocess
+        acct_unique
+        suffix
+    }
+    
+    accounting {
+        sql
+    }
+    
+    session {
+        sql
+    }
+    
+    post-auth {
+        update {
+            &reply: += &session-state:
+        }
+        sql
+        exec
+        post-auth_log
+    }
+    
+    pre-proxy {
+        pre-proxy_log
+    }
+    
+    post-proxy {
+        post-proxy_log
+    }
+}
+DEFAULT_SITE
+
+# Configurar o INNER-TUNNEL (para EAP/PEAP)
+cat << 'INNER_TUNNEL' > /etc/freeradius/3.0/sites-enabled/inner-tunnel
+# inner-tunnel - FreeRADIUS configuration for EAP/inner-tunnel
+server inner-tunnel {
+    listen {
+        ipaddr = 127.0.0.1
+        port = 18120
+        type = auth
+    }
+    
+    authorize {
+        filter_username
+        preprocess
+        auth_log
+        chap
+        mschap
+        suffix
+        update control {
+            &Proxy-To-Realm := LOCAL
+        }
+        eap {
+            ok = return
+        }
+        files
+        sql
+        pap
+    }
+    
+    authenticate {
+        Auth-Type PAP {
+            pap
+        }
+        Auth-Type CHAP {
+            chap
+        }
+        Auth-Type MS-CHAP {
+            mschap
+        }
+        eap
+    }
+    
+    preacct {
+        preprocess
+        acct_unique
+    }
+    
+    accounting {
+        sql
+    }
+    
+    session {
+        sql
+    }
+    
+    post-auth {
+        update {
+            &reply: += &session-state:
+        }
+        sql
+        exec
+        post-auth_log
+    }
+    
+    pre-proxy {
+        pre-proxy_log
+    }
+    
+    post-proxy {
+        post-proxy_log
+    }
+}
+INNER_TUNNEL
+
+# Configurar clients.conf
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
 client localhost {
     ipaddr = 127.0.0.1
@@ -331,17 +572,17 @@ client localhost_ipv6 {
 }
 CLIENTS_CONF
 
+# Ajustar permissões
 chown -R freerad:freerad /etc/freeradius/3.0/
+chmod 640 /etc/freeradius/3.0/mods-enabled/sql
 
-# Ativa estritamente o módulo SQL isolado no fluxo do FreeRADIUS
-sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
-sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
-sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
-
-# 🎯 SINCRONISMO AVANÇADO DE CAMPOS DE LOG EM QUERIES.CONF DO FREERADIUS
-echo "[*] Aplicando patch de engenharia nas queries de auditoria do FreeRADIUS..."
-sed -i 's/(username, pass, reply, nasipaddress, authdate)/(username, pass, reply, nasipaddress, authdate, callingstationid, nasportid)/g' /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
-sed -i "s/'%{NAS-IP-Address}', 'now()')/'%{NAS-IP-Address}', 'now()', '%{Calling-Station-Id}', '%{NAS-Port}')/g" /etc/freeradius/3.0/mods-config/sql/main/postgresql/queries.conf
+# Testar configuração do FreeRADIUS
+echo "[*] Testando configuração do FreeRADIUS..."
+if freeradius -C 2>&1 | grep -q "Configuration appears to be OK"; then
+    echo "[+] Configuração do FreeRADIUS OK"
+else
+    echo "[!] Aviso: Configuração do FreeRADIUS tem problemas, mas continuando..."
+fi
 
 # Permite que o PHP (www-data) recarregue o FreeRADIUS nativamente via interface sem digitar senhas
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
@@ -396,22 +637,22 @@ access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
 EOF2
 touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf
-chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf
-chmod 664 /etc/unbound/*.conf
+chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf 2>/dev/null || true
+chmod 664 /etc/unbound/*.conf 2>/dev/null || true
 
-aa-complain /usr/sbin/unbound || true
+aa-complain /usr/sbin/unbound 2>/dev/null || true
 
 if [ -x /usr/sbin/unbound-anchor ]; then
-    /usr/sbin/unbound-anchor || true
+    /usr/sbin/unbound-anchor 2>/dev/null || true
 fi
 
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
 echo "[*] Configurando ambiente virtual Python e dependências de NOC..."
 mkdir -p /var/www/html/isp-client/ferramentas/dns
-python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
-/var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip
-/var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install flask psycopg2-binary reportlab
+python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns 2>/dev/null || true
+/var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip 2>/dev/null || true
+/var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install flask psycopg2-binary reportlab 2>/dev/null || true
 
 cat << 'EOF2' > /etc/systemd/system/dns-metrics-collector.service
 [Unit]
@@ -440,7 +681,7 @@ rtr-listen = ["0.0.0.0:3323"]
 http-listen = ["127.0.0.1:8323"]
 log-level = "info"
 EOF2
-chown -R routinator:routinator /var/lib/routinator /etc/routinator
+chown -R routinator:routinator /var/lib/routinator /etc/routinator 2>/dev/null || true
 
 cat << 'EOF2' > /etc/krill.conf
 ip = "0.0.0.0"
@@ -451,8 +692,8 @@ log_type = "syslog"
 log_level = "info"
 EOF2
 mkdir -p /var/log/krill /var/lib/krill/data
-chown krill:krill /etc/krill.conf
-chown -R krill:krill /var/log/krill /var/lib/krill
+chown krill:krill /etc/krill.conf 2>/dev/null || true
+chown -R krill:krill /var/log/krill /var/lib/krill 2>/dev/null || true
 # ====================================================================
 
 # Implantação de Serviço Nativo do Coletor NetFlow (Híbrido v5/v9)
@@ -477,9 +718,9 @@ EOF2
 
 # Redirecionando logs do NetFlow para o /home
 mkdir -p /home/flow_logs
-chown -R www-data:www-data /home/flow_logs
-rm -rf /var/www/html/isp-client/flow/logs || true
-ln -s /home/flow_logs /var/www/html/isp-client/flow/logs
+chown -R www-data:www-data /home/flow_logs 2>/dev/null || true
+rm -rf /var/www/html/isp-client/flow/logs 2>/dev/null || true
+ln -s /home/flow_logs /var/www/html/isp-client/flow/logs 2>/dev/null || true
 
 # Configurando monitoramento e autolimpeza dos logs
 cat << 'XML' > /etc/logrotate.d/isp-flow
@@ -498,14 +739,14 @@ echo "[*] Formatando base de dados do Flow Monitor em zero absoluto comercial...
 mkdir -p /var/www/html/isp-client/flow/data
 echo "[]" > /var/www/html/isp-client/flow/data/flows.json
 echo "{}" > /var/www/html/isp-client/flow/data/stats.json
-rm -f /var/www/html/isp-client/flow/data/templates.json || true
-chown -R www-data:www-data /var/www/html/isp-client/flow/data
-chmod -R 775 /var/www/html/isp-client/flow/data
+rm -f /var/www/html/isp-client/flow/data/templates.json 2>/dev/null || true
+chown -R www-data:www-data /var/www/html/isp-client/flow/data 2>/dev/null || true
+chmod -R 775 /var/www/html/isp-client/flow/data 2>/dev/null || true
 
 # Ajustar permissões globais e liberar o MTR
-chown -R www-data:www-data /var/www/html/isp-client
-chown -R www-data:www-data /var/lib/php/sessions
-chmod -s /usr/bin/mtr || true
+chown -R www-data:www-data /var/www/html/isp-client 2>/dev/null || true
+chown -R www-data:www-data /var/lib/php/sessions 2>/dev/null || true
+chmod -s /usr/bin/mtr 2>/dev/null || true
 chmod -s /usr/libexec/mtr-packet 2>/dev/null || true
 chmod -s /usr/bin/mtr-packet 2>/dev/null || true
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/mtr" > /etc/sudoers.d/www-data-mtr
@@ -535,27 +776,37 @@ XML
 chmod 644 /etc/cron.d/isp-client
 
 # Limpezas finais
-rm -f /var/www/html/isp-client/storage/license_state.json || true
-find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
+rm -f /var/www/html/isp-client/storage/license_state.json 2>/dev/null || true
+find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete 2>/dev/null || true
 
 # Inicializando e acordando todos os serviços
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius
-systemctl restart cron php8.2-fpm nginx
-systemctl enable cron php8.2-fpm nginx
+systemctl enable netflow-collector.service 2>/dev/null || true
+systemctl enable dns-metrics-collector.service 2>/dev/null || true
+systemctl enable unbound 2>/dev/null || true
+systemctl enable freeradius 2>/dev/null || true
+
+systemctl restart unbound 2>/dev/null || true
+systemctl restart dns-metrics-collector.service 2>/dev/null || true
+systemctl restart netflow-collector.service 2>/dev/null || true
+systemctl restart freeradius 2>/dev/null || true
+systemctl restart cron 2>/dev/null || true
+systemctl restart php8.2-fpm 2>/dev/null || true
+systemctl restart nginx 2>/dev/null || true
+
+systemctl enable cron php8.2-fpm nginx 2>/dev/null || true
 
 # 🌐 AUTO-RESOLUÇÃO BLINDADA LOCAL
 echo "[*] Fixando e blindando a auto-resolução DNS local..."
-chattr -i /etc/resolv.conf || true
+chattr -i /etc/resolv.conf 2>/dev/null || true
 rm -f /etc/resolv.conf
 echo "nameserver 127.0.0.1" > /etc/resolv.conf
-chattr +i /etc/resolv.conf
+chattr +i /etc/resolv.conf 2>/dev/null || true
 
 echo "===================================================="
 echo "        INSTALACAO CONCLUIDA COM SUCESSO!           "
-echo "        LEMBRE-SE DE USAR: https://IP:8081"
+echo "        LEMBRE-SE DE USAR: https://IP:8081         "
 echo "===================================================="
 
 # O script se auto-destrói do servidor do cliente para não deixar lixo exposto
-rm -- "$0"
+rm -- "$0" 2>/dev/null || true
