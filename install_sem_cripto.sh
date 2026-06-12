@@ -351,7 +351,7 @@ minimal-responses: yes
 prefetch: yes
 prefetch-key: yes
 rrset-roundrobin: yes
-auto-trust-anchor-file: "/var/lib/unbound/root.key"
+#auto-trust-anchor-file: "/var/lib/unbound/root.key"
 logfile: "/var/log/unbound/unbound.log"
 verbosity: 2
 log-queries: yes
