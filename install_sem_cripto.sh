@@ -403,13 +403,23 @@ EOF2
 # 🚀 INJEÇÃO EXTRA: CONFIGURAÇÃO INDUSTRIAL AUTOMATIZADA DO ROUTINATOR E KRILL
 echo "[*] Injetando arquivo de portas e termos ARIN do Routinator..."
 mkdir -p /etc/routinator /var/lib/routinator/repository /var/lib/routinator/tals /var/lib/krill
-cat << 'EOF2' > /etc/routinator/routinator.conf
+cat << 'RADIUS_CONF' > /etc/routinator/routinator.conf
 rtr-listen = ["127.0.0.1:3323"]
 http-listen = ["127.0.0.1:8323"]
 repository-dir = "/var/lib/routinator/repository"
 log-level = "info"
-agree-arin-rpkiev-agreement = true
+RADIUS_CONF
+
+# Cria drop-in do Systemd injetando o aceite ARIN limpo de erros de sintaxe
+mkdir -p /etc/systemd/system/routinator.service.d
+cat << 'EOF2' > /etc/systemd/system/routinator.service.d/override.conf
+[Service]
+ExecStart=
+ExecStart=/usr/bin/routinator --config=/etc/routinator/routinator.conf --syslog server --agree-arin-rpkiev-agreement
 EOF2
+
+# Força a extração/cópia das TALs nativas para liberar a trava do Systemd
+cp -r /usr/share/routinator/tals/* /var/lib/routinator/tals/ 2>/dev/null || true
 
 chown -R routinator:routinator /var/lib/routinator /etc/routinator
 chmod 755 /var/lib/routinator /etc/routinator
@@ -460,7 +470,7 @@ mkdir -p /var/www/html/isp-client/flow/data
 echo "[]" > /var/www/html/isp-client/flow/data/flows.json
 echo "{}" > /var/www/html/isp-client/flow/data/stats.json
 rm -f /var/www/html/isp-client/flow/data/templates.json || true
-chown -R www-data:www-data /var/user/flow/data || chown -R www-data:www-data /var/www/html/isp-client/flow/data
+chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
 
 # Ajustar permissões globais e liberar o MTR
@@ -489,7 +499,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/backups/motor_backup.php > /dev/null 2>&1
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_flow.php > /dev/null 2>&1
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_consolidar.php > /dev/null 2>&1
-0 */4 * * * www-data /usr/bin/php /var/www/html/isp-client/app/cron_license.php > /dev/null 2>&1
+0 */4 * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_license.php > /dev/null 2>&1
 0 3 * * * root /usr/bin/systemctl restart netflow-collector.service > /dev/null 2>&1
 XML
 
@@ -499,7 +509,7 @@ chmod 644 /etc/cron.d/isp-client
 rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
-# Inicializando e acordando todos os serviços (🎯 KRILL E ROUTINATOR ADICIONADOS DE FORMA NATIVA)
+# Inicializando e acordando todos os serviços
 systemctl daemon-reload
 systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius routinator krill
 systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius routinator krill
