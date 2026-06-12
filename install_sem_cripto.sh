@@ -4,7 +4,7 @@ set -e
 
 echo "===================================================="
 echo "    INSTALADOR AUTOMATIZADO - VITOR-QUADROS ISP     "
-echo "             (VERSÃO SEM CRIPTO / LAB)              "
+echo "                 (VERSÃO SEM CRIPTO / LAB)              "
 echo "===================================================="
 echo ""
 
@@ -399,6 +399,21 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF2
+
+# 🚀 INJEÇÃO EXTRA: CONFIGURAÇÃO INDUSTRIAL AUTOMATIZADA DO ROUTINATOR E KRILL
+echo "[*] Injetando arquivo de portas e termos ARIN do Routinator..."
+mkdir -p /etc/routinator /var/lib/routinator/repository /var/lib/routinator/tals /var/lib/krill
+cat << 'EOF2' > /etc/routinator/routinator.conf
+rtr-listen = ["127.0.0.1:3323"]
+http-listen = ["127.0.0.1:8323"]
+repository-dir = "/var/lib/routinator/repository"
+log-level = "info"
+agree-arin-rpkiev-agreement = true
+EOF2
+
+chown -R routinator:routinator /var/lib/routinator /etc/routinator
+chmod 755 /var/lib/routinator /etc/routinator
+chown -R krill:krill /var/lib/krill
 # ====================================================================
 
 # Implantação de Serviço Nativo do Coletor NetFlow (Híbrido v5/v9)
@@ -445,7 +460,7 @@ mkdir -p /var/www/html/isp-client/flow/data
 echo "[]" > /var/www/html/isp-client/flow/data/flows.json
 echo "{}" > /var/www/html/isp-client/flow/data/stats.json
 rm -f /var/www/html/isp-client/flow/data/templates.json || true
-chown -R www-data:www-data /var/www/html/isp-client/flow/data
+chown -R www-data:www-data /var/user/flow/data || chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
 
 # Ajustar permissões globais e liberar o MTR
@@ -484,10 +499,10 @@ chmod 644 /etc/cron.d/isp-client
 rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
-# Inicializando e acordando todos os serviços
+# Inicializando e acordando todos os serviços (🎯 KRILL E ROUTINATOR ADICIONADOS DE FORMA NATIVA)
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius
+systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius routinator krill
+systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius routinator krill
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
