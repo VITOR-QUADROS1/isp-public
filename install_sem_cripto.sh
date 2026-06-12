@@ -38,7 +38,7 @@ deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmwa
 deb-src http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
 
 deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security bookworm-security main metals contrib non-free non-free-firmware
 
 deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
 deb-src http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
@@ -50,7 +50,7 @@ apt-get update && apt-get upgrade -y
 
 # 2. Instalar todas as dependências do sistema, redes, recursivo, e-mail e freeradius
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
-apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron freeradius freeradius-postgresql
+apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron dirmngr freeradius freeradius-postgresql
 
 # 🔥 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI COM CAPTURA DIRETTA DE GPG (SEM INTERATIVIDADE)
 echo "[*] Sincronizando chaves e adicionando repositório oficial NLnet Labs..."
@@ -401,7 +401,7 @@ WantedBy=multi-user.target
 EOF2
 
 # 🚀 INJEÇÃO EXTRA: CONFIGURAÇÃO INDUSTRIAL AUTOMATIZADA DO ROUTINATOR E KRILL
-echo "[*] Injetando arquivo de portas e termos ARIN do Routinator..."
+echo "[*] Injetando arquivo de portas do Routinator..."
 mkdir -p /etc/routinator /var/lib/routinator/repository /var/lib/routinator/tals /var/lib/krill
 cat << 'RADIUS_CONF' > /etc/routinator/routinator.conf
 rtr-listen = ["127.0.0.1:3323"]
@@ -410,15 +410,10 @@ repository-dir = "/var/lib/routinator/repository"
 log-level = "info"
 RADIUS_CONF
 
-# Cria drop-in do Systemd injetando o aceite ARIN limpo de erros de sintaxe
-mkdir -p /etc/systemd/system/routinator.service.d
-cat << 'EOF2' > /etc/systemd/system/routinator.service.d/override.conf
-[Service]
-ExecStart=
-ExecStart=/usr/bin/routinator --config=/etc/routinator/routinator.conf --syslog server --agree-arin-rpkiev-agreement
-EOF2
+# Limpa overrides antigos do Systemd para o boot nativo limpo da versao Debian
+rm -rf /etc/systemd/system/routinator.service.d
 
-# Força a extração/cópia das TALs nativas para liberar a trava do Systemd
+# Força a extração/cópia das TALs nativas prontas do Debian (Dispensa flags de contratos de terceiros)
 cp -r /usr/share/routinator/tals/* /var/lib/routinator/tals/ 2>/dev/null || true
 
 chown -R routinator:routinator /var/lib/routinator /etc/routinator
