@@ -14,13 +14,6 @@ systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unb
 pkill -9 php-fpm || true
 pkill -9 php || true
 
-# Destrava o dpkg se ele veio quebrado de instalações anteriores abortadas
-mkdir -p /etc/freeradius || true
-dpkg --configure -a || true
-apt-get install -f -y || true
-apt-get purge -y freeradius freeradius-postgresql freeradius-common freeradius-config || true
-rm -rf /etc/freeradius || true
-
 # Derruba conexões presas no Postgres e limpa o banco e o usuário antigo
 if systemctl is-active --quiet postgresql; then
     su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" || true
@@ -252,7 +245,7 @@ chmod 640 /var/www/html/isp-client/config/env.php
 
 # 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA ORIGINAL ESTÁVEL
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
-cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
+cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-available/sql
 sql {
     driver = "rlm_sql_postgresql"
     dialect = "postgresql"
@@ -294,7 +287,10 @@ sql {
     }
 }
 RADIUS_CONF
-ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
+
+# Cria a ponte ativando o arquivo disponível com segurança (Sem de sobrescrever)
+rm -f /etc/freeradius/3.0/mods-enabled/sql
+ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql
 
 # 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf original estável de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
@@ -318,8 +314,8 @@ sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradi
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
 
-# Concede direitos de reload suave para a interface Web
-echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload freeradius" >> /etc/sudoers.d/www-data-freeradius
+# Concede direitos de restart suave para a interface Web no sudoers
+echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart freeradius" >> /etc/sudoers.d/www-data-freeradius
 chmod 440 /etc/sudoers.d/www-data-freeradius
 
 # ====================================================================

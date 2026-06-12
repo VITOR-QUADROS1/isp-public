@@ -14,13 +14,6 @@ systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unb
 pkill -9 php-fpm || true
 pkill -9 php || true
 
-# 🔥 DESTRAVA MESTRE: Corrige o gerenciador de pacotes do Linux se veio quebrado de telas anteriores
-mkdir -p /etc/freeradius || true
-dpkg --configure -a || true
-apt-get install -f -y || true
-apt-get purge -y freeradius freeradius-postgresql freeradius-common freeradius-config || true
-rm -rf /etc/freeradius || true
-
 # Derruba conexões presas no Postgres e limpa o banco e o usuário antigo
 if systemctl is-active --quiet postgresql; then
     su - postgres -c "psql -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'isp_client_portal';\"" || true
@@ -187,7 +180,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO isp_client_app;
 EOF2
 
-# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO (Povoa usuários master de fábrica com hashes gerados em tempo de execução)
+# 🚀 INJEÇÃO DE PARÂMETROS DE INICIALIZAÇÃO
 echo "[*] Injetando usuários administradores e parâmetros padrões de fábrica..."
 HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
@@ -209,9 +202,9 @@ EOF2
 chown root:www-data /var/www/html/isp-client/config/env.php
 chmod 640 /var/www/html/isp-client/config/env.php
 
-# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA (BASELINE ESTÁVEL)
+# 🔑 CONFIGURAÇÃO DO FREERADIUS CENTRAL AAA (ORDEM CORRETAMENTE FIXADA)
 echo "[*] Configurando subsistema modular do FreeRADIUS Central..."
-cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-enabled/sql
+cat << 'RADIUS_CONF' > /etc/freeradius/3.0/mods-available/sql
 sql {
     driver = "rlm_sql_postgresql"
     dialect = "postgresql"
@@ -253,7 +246,10 @@ sql {
     }
 }
 RADIUS_CONF
-ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql || true
+
+# Cria a ponte ativando o arquivo disponível com segurança (Sem sobrescrever)
+rm -f /etc/freeradius/3.0/mods-enabled/sql
+ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql
 
 # 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf limpo contendo estritamente o localhost de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
@@ -270,13 +266,16 @@ client localhost_ipv6 {
 }
 CLIENTS_CONF
 
-# Garante o sincronismo do arquivo e permissões do FreeRADIUS
-chown freerad:freerad /etc/freeradius/3.0/clients.conf
+chown -R freerad:freerad /etc/freeradius/3.0/
 
-# Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS (Sem quebrar o sqlippool)
+# Ativa estritamente o modulo SQL isolado no fluxo do FreeRADIUS
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
+
+# Concede direitos de restart para a interface Web recarregar os NAS do banco
+echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart freeradius" >> /etc/sudoers.d/www-data-freeradius
+chmod 440 /etc/sudoers.d/www-data-freeradius
 
 # ====================================================================
 # 🌐 CONFIGURAÇÃO INDUSTRIAL INTEGRADA DO DNS RECURSIVO UNBOUND
@@ -287,7 +286,6 @@ touch /var/log/unbound/unbound.log
 chown -R unbound:unbound /var/log/unbound
 chmod 644 /var/log/unbound/unbound.log
 
-# Escreve a arquitetura limpa de includes do Unbound
 cat << 'EOF2' > /etc/unbound/unbound.conf
 include: /etc/unbound/unbound.conf.d/remote-control.conf
 server:
@@ -323,7 +321,6 @@ extended-statistics: yes
 statistics-cumulative: no
 EOF2
 
-# Inicializa os arquivos planos de tabelas dinâmicas do Unbound
 cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
@@ -332,25 +329,20 @@ touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf
 chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf
 chmod 664 /etc/unbound/*.conf
 
-# Remove a trava de segurança do kernel (AppArmor) para autorizar a gravação de logs externos
 aa-complain /usr/sbin/unbound || true
 
-# Validação segura das chaves raiz do Unbound
 if [ -x /usr/sbin/unbound-anchor ]; then
     /usr/sbin/unbound-anchor || true
 fi
 
-# Concede direitos para o usuário PHP executar reloads suaves sem derrubar o cache do Unbound
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl reload unbound" >> /etc/sudoers
 
-# Configura o ambiente virtual Python exclusivo para os daemons de métricas de rede
 echo "[*] Configurando ambiente virtual Python e dependências de NOC..."
 mkdir -p /var/www/html/isp-client/ferramentas/dns
 python3 -m venv /var/www/html/isp-client/ferramentas/dns/venv-dns
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install --upgrade pip
 /var/www/html/isp-client/ferramentas/dns/venv-dns/bin/pip install flask psycopg2-binary reportlab
 
-# Cria a unidade Systemd para monitoramento contínuo dos logs do Unbound
 cat << 'EOF2' > /etc/systemd/system/dns-metrics-collector.service
 [Unit]
 Description=VisaoSoft DNS Metrics Daemon Collector
@@ -406,7 +398,7 @@ cat << 'XML' > /etc/logrotate.d/isp-flow
 }
 XML
 
-# 🛑 FORMATAÇÃO DO FLOW EM ZERO ABSOLUTO E AJUSTE DE PERMISSÃO CONTRA LOCKS
+# 🛑 FORMATAÇÃO DO FLOW MONITOR EM ZERO ABSOLUTO COMERCIAL
 echo "[*] Formatando base de dados do Flow Monitor em zero absoluto comercial..."
 mkdir -p /var/www/html/isp-client/flow/data
 echo "[]" > /var/www/html/isp-client/flow/data/flows.json
