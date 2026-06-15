@@ -10,7 +10,7 @@ echo ""
 
 # 0.1 LIMPEZA ESTRUTURAL COMPLETA BEFORE CLEAN DEPLOY
 echo "[*] Removendo instalações, processos e bancos de dados anteriores..."
-systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound routinator krill freeradius || true
+systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector visao-alerts unbound routinator krill freeradius || true
 pkill -9 php-fpm || true
 pkill -9 php || true
 
@@ -28,6 +28,7 @@ rm -f /etc/sudoers.d/www-data-mtr || true
 rm -rf /etc/systemd/system/php8.2-fpm.service.d/ || true
 rm -f /etc/systemd/system/netflow-collector.service || true
 rm -f /etc/systemd/system/dns-metrics-collector.service || true
+rm -f /etc/systemd/system/visao-alerts.service || true
 rm -f /etc/nginx/ssl/isp-client.* || true
 systemctl daemon-reload || true
 
@@ -208,13 +209,11 @@ php /var/www/html/isp-client/backups/seed_backups.php
 # 🛠️ CORREÇÃO DE PRIVILÉGIOS E SINCRONISMO DE COLUNAS DO ADVANCED MTR
 echo "[*] Aplicando patches de segurança e permissões absolutas de banco de dados..."
 cat << 'EOF2' | sudo -u postgres psql -d isp_client_portal
--- Garante que as colunas active exigidas pelo código existam por padrão
 ALTER TABLE mtr_advanced_networks ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
--- Concede direitos totais para o usuário PHP manipular tabelas e sequências
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
@@ -227,7 +226,6 @@ HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
 
 sudo -u postgres psql -d isp_client_portal -c "INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;"
-
 sudo -u postgres psql -d isp_client_portal -c "INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;"
 
 # Criar arquivo de credenciais local
@@ -288,18 +286,15 @@ sql {
 }
 RADIUS_CONF
 
-# Cria a ponte ativando o arquivo disponível com segurança (Sem de sobrescrever)
 rm -f /etc/freeradius/3.0/mods-enabled/sql
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql
 
-# 🎯 BLINDAGEM PORTÁTIL: Garante o clients.conf original estável de fábrica
 cat << 'CLIENTS_CONF' > /etc/freeradius/3.0/clients.conf
 client localhost {
     ipaddr = 127.0.0.1
     secret = testing123
     nas_type = other
 }
-
 client localhost_ipv6 {
     ipv6addr = ::1
     secret = testing123
@@ -308,13 +303,10 @@ client localhost_ipv6 {
 CLIENTS_CONF
 
 chown -R freerad:freerad /etc/freeradius/3.0/
-
-# Ativa o modulo SQL no fluxo padrão do FreeRADIUS de forma segura
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/default
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
 
-# Concede direitos de restart suave para a interface Web no sudoers
 echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart freeradius" >> /etc/sudoers.d/www-data-freeradius
 chmod 440 /etc/sudoers.d/www-data-freeradius
 
@@ -351,7 +343,6 @@ minimal-responses: yes
 prefetch: yes
 prefetch-key: yes
 rrset-roundrobin: yes
-#auto-trust-anchor-file: "/var/lib/unbound/root.key"
 logfile: "/var/log/unbound/unbound.log"
 verbosity: 2
 log-queries: yes
@@ -371,7 +362,6 @@ chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/
 chmod 664 /etc/unbound/*.conf
 
 aa-complain /usr/sbin/unbound || true
-
 if [ -x /usr/sbin/unbound-anchor ]; then
     /usr/sbin/unbound-anchor || true
 fi
@@ -410,15 +400,39 @@ repository-dir = "/var/lib/routinator/repository"
 log-level = "info"
 RADIUS_CONF
 
-# Limpa overrides antigos do Systemd para o boot nativo limpo da versao Debian
 rm -rf /etc/systemd/system/routinator.service.d
-
-# Força a extração/cópia das TALs nativas prontas do Debian (Dispensa flags de contratos de terceiros)
 cp -r /usr/share/routinator/tals/* /var/lib/routinator/tals/ 2>/dev/null || true
-
 chown -R routinator:routinator /var/lib/routinator /etc/routinator
 chmod 755 /var/lib/routinator /etc/routinator
 chown -R krill:krill /var/lib/krill
+
+# ====================================================================
+# 🔔 GERAÇÃO LOCAL AUTOMÁTICA DO AMBIENTE VIRTUAL DO TELEGRAM DE FABRICA
+# ====================================================================
+echo "[*] Montando ambiente virtual Python isolado e instalando Playwright para Alertas Telegram..."
+mkdir -p /var/www/html/isp-client/telegram
+python3 -m venv /var/www/html/isp-client/telegram/venv
+/var/www/html/isp-client/telegram/venv/bin/pip install --upgrade pip
+/var/www/html/isp-client/telegram/venv/bin/pip install playwright psycopg2-binary requests
+/var/www/html/isp-client/telegram/venv/bin/playwright install chromium
+/var/www/html/isp-client/telegram/venv/bin/playwright install-deps
+
+cat << 'EOF2' > /etc/systemd/system/visao-alerts.service
+[Unit]
+Description=Motor de Eventos e Alertas Telegram VISAOLOG
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/html/isp-client/telegram
+ExecStart=/var/www/html/isp-client/telegram/venv/bin/python3 /var/www/html/isp-client/telegram/alert_engine.py
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF2
 # ====================================================================
 
 # Implantação de Serviço Nativo do Coletor NetFlow (Híbrido v5/v9)
@@ -499,15 +513,13 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 XML
 
 chmod 644 /etc/cron.d/isp-client
-
-# Limpezas finais
 rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
 # Inicializando e acordando todos os serviços
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius routinator krill
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius routinator krill
+systemctl enable netflow-collector.service dns-metrics-collector.service visao-alerts.service unbound freeradius routinator krill
+systemctl restart unbound dns-metrics-collector.service netflow-collector.service visao-alerts.service freeradius routinator krill
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
@@ -523,5 +535,4 @@ echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
 
-# O script se auto-destrói do servidor do cliente para não deixar lixo exposto
 rm -- "$0"
