@@ -10,7 +10,7 @@ echo ""
 
 # 0.1 LIMPEZA ESTRUTURAL COMPLETA BEFORE CLEAN DEPLOY
 echo "[*] Removendo instalações, processos e bancos de dados anteriores..."
-systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector unbound freeradius || true
+systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector visao-alerts unbound freeradius || true
 pkill -9 php-fpm || true
 pkill -9 php || true
 
@@ -28,6 +28,7 @@ rm -f /etc/sudoers.d/www-data-mtr || true
 rm -rf /etc/systemd/system/php8.2-fpm.service.d/ || true
 rm -f /etc/systemd/system/netflow-collector.service || true
 rm -f /etc/systemd/system/dns-metrics-collector.service || true
+rm -f /etc/systemd/system/visao-alerts.service || true
 rm -f /etc/nginx/ssl/isp-client.* || true
 systemctl daemon-reload || true
 
@@ -186,7 +187,6 @@ HASH_MASTER=$(php -r "echo password_hash('VisaoMaster2026', PASSWORD_DEFAULT);")
 HASH_CLIENTE=$(php -r "echo password_hash('Mudar@123!', PASSWORD_DEFAULT);")
 
 sudo -u postgres psql -d isp_client_portal -c "INSERT INTO client_portal_users (username, password_hash, role, name, email, phone, is_active, created_at, updated_at) VALUES ('master', '$HASH_MASTER', 'master', 'Master Oculto', 'suporte@visaosoft.com', '5500000000000', true, NOW(), NOW()), ('admin', '$HASH_CLIENTE', 'admin', 'Administrador Local', 'admin@provedor.com', '5500000000000', true, NOW(), NOW()) ON CONFLICT (username) DO NOTHING;"
-
 sudo -u postgres psql -d isp_client_portal -c "INSERT INTO backup_configuracoes (id, smtp_host, smtp_porta, smtp_usuario, smtp_senha, smtp_from_nome, smtp_from_email, senha_min_caracteres, backup_automatico, backup_horario, backup_avisar_falhas, backup_email_falhas, backup_retencoes) VALUES (1, 'mail.seusistema.com.br', 587, '', '', 'ISP Backup', '', 6, false, '02:00:00', false, 'noc@seuprovedor.com.br', 10) ON CONFLICT (id) DO NOTHING;"
 
 # Criar arquivo de credenciais local
@@ -247,7 +247,7 @@ sql {
 }
 RADIUS_CONF
 
-# Cria a ponte ativando o arquivo disponível com segurança (Sem sobrescrever)
+# Cria a ponte ativando o arquivo disponível com segurança (Sem de sobrescrever)
 rm -f /etc/freeradius/3.0/mods-enabled/sql
 ln -sf /etc/freeradius/3.0/mods-available/sql /etc/freeradius/3.0/mods-enabled/sql
 
@@ -358,7 +358,34 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF2
+
 # ====================================================================
+# 🔔 GERAÇÃO LOCAL AUTOMÁTICA DO AMBIENTE VIRTUAL DO TELEGRAM DE FABRICA
+# ====================================================================
+echo "[*] Montando ambiente virtual Python isolado e instalando Playwright para Alertas Telegram..."
+mkdir -p /var/www/html/isp-client/telegram
+python3 -m venv /var/www/html/isp-client/telegram/venv
+/var/www/html/isp-client/telegram/venv/bin/pip install --upgrade pip
+/var/www/html/isp-client/telegram/venv/bin/pip install playwright psycopg2-binary requests
+/var/www/html/isp-client/telegram/venv/bin/playwright install chromium
+/var/www/html/isp-client/telegram/venv/bin/playwright install-deps
+
+cat << 'EOF2' > /etc/systemd/system/visao-alerts.service
+[Unit]
+Description=Motor de Eventos e Alertas Telegram VISAOLOG
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/html/isp-client/telegram
+ExecStart=/var/www/html/isp-client/telegram/venv/bin/python3 /var/www/html/isp-client/telegram/alert_engine.py
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF2
 
 # Implantação de Serviço Nativo do Coletor NetFlow (Híbrido v5/v9)
 echo "[*] Criando serviço nativo do Systemd para o Coletor de Tráfego..."
@@ -433,20 +460,18 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/backups/motor_backup.php > /dev/null 2>&1
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_flow.php > /dev/null 2>&1
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_consolidar.php > /dev/null 2>&1
-0 */4 * * * www-data /usr/bin/php /var/www/html/isp-client/app/cron_license.php > /dev/null 2>&1
+0 */4 * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_license.php > /dev/null 2>&1
 0 3 * * * root /usr/bin/systemctl restart netflow-collector.service > /dev/null 2>&1
 XML
 
 chmod 644 /etc/cron.d/isp-client
-
-# Limpezas finais
 rm -f /var/www/html/isp-client/storage/license_state.json || true
 find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
 # Inicializando e acordando todos os serviços
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service unbound freeradius
-systemctl restart unbound dns-metrics-collector.service netflow-collector.service freeradius
+systemctl enable netflow-collector.service dns-metrics-collector.service visao-alerts.service unbound freeradius
+systemctl restart unbound dns-metrics-collector.service netflow-collector.service visao-alerts.service freeradius
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
