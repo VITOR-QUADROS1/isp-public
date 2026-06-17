@@ -328,6 +328,7 @@ interface-automatic: yes
 include: /etc/unbound/bloqueios.conf
 include: /etc/unbound/acls.conf
 include: /etc/unbound/local_zones.conf
+include: "/etc/unbound/flow_blocks.conf"
 num-threads: 8
 outgoing-range: 8192
 so-rcvbuf: 1m
@@ -357,8 +358,8 @@ cat << 'EOF2' > /etc/unbound/acls.conf
 access-control: 127.0.0.0/8 allow
 access-control: ::1 allow
 EOF2
-touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf
-chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf
+touch /etc/unbound/local_zones.conf /etc/unbound/bloqueios.conf /etc/unbound/flow_blocks.conf
+chown www-data:www-data /etc/unbound/bloqueios.conf /etc/unbound/acls.conf /etc/unbound/local_zones.conf /etc/unbound/flow_blocks.conf
 chmod 664 /etc/unbound/*.conf
 
 aa-complain /usr/sbin/unbound || true
@@ -508,6 +509,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/backups/motor_backup.php > /dev/null 2>&1
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_flow.php > /dev/null 2>&1
 * * * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_consolidar.php > /dev/null 2>&1
+* * * * * www-data /usr/bin/php /var/www/html/isp-client/flow/attack_detector.php > /dev/null 2>&1
 0 */4 * * * www-data /usr/bin/php /var/www/html/isp-client/flow/cron_license.php > /dev/null 2>&1
 0 3 * * * root /usr/bin/systemctl restart netflow-collector.service > /dev/null 2>&1
 XML
