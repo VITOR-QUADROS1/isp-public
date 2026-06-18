@@ -10,7 +10,7 @@ echo ""
 
 # 0.1 LIMPEZA ESTRUTURAL COMPLETA BEFORE CLEAN DEPLOY
 echo "[*] Removendo instalações, processos e bancos de dados anteriores..."
-systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector visao-alerts unbound routinator krill freeradius || true
+systemctl stop nginx php8.2-fpm cron netflow-collector dns-metrics-collector visao-alerts unbound routinator krill freeradius exabgp exabgp-api || true
 pkill -9 php-fpm || true
 pkill -9 php || true
 
@@ -25,10 +25,14 @@ fi
 rm -rf /var/www/html/isp-client || true
 rm -f /etc/cron.d/isp-client || true
 rm -f /etc/sudoers.d/www-data-mtr || true
+rm -f /etc/sudoers.d/www-data-exabgp || true
+rm -f /etc/sudoers.d/www-data-freeradius || true
 rm -rf /etc/systemd/system/php8.2-fpm.service.d/ || true
 rm -f /etc/systemd/system/netflow-collector.service || true
 rm -f /etc/systemd/system/dns-metrics-collector.service || true
 rm -f /etc/systemd/system/visao-alerts.service || true
+rm -f /etc/systemd/system/exabgp-api.service || true
+rm -rf /etc/systemd/system/exabgp.service.d/ || true
 rm -f /etc/nginx/ssl/isp-client.* || true
 systemctl daemon-reload || true
 
@@ -39,7 +43,7 @@ deb http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmwa
 deb-src http://deb.debian.org/debian/ bookworm main contrib non-free non-free-firmware
 
 deb http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
-deb-src http://security.debian.org/debian-security bookworm-security main metals contrib non-free non-free-firmware
+deb-src http://security.debian.org/debian-security bookworm-security main contrib non-free non-free-firmware
 
 deb http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
 deb-src http://deb.debian.org/debian/ bookworm-updates main contrib non-free non-free-firmware
@@ -53,7 +57,11 @@ apt-get update && apt-get upgrade -y
 echo "[*] Instalando ferramentas de rede, recursivo, e-mail, freeradius e linguagens..."
 apt-get install -y apt-transport-https ca-certificates curl gnupg wget sudo lsof mtr-tiny rsync socat netcat-openbsd net-tools rsyslog sshpass python3 python3-pip python3-venv apparmor-utils unbound dnsutils git cron dirmngr freeradius freeradius-postgresql
 
-# 🔥 2.1 INSTALAÇÃO INDUSTRIAL DO RPKI COM CAPTURA DIRETTA DE GPG (SEM INTERATIVIDADE)
+# 2.1 Instalar ExaBGP e Flask para o módulo Anti-DDoS BGP
+echo "[*] Instalando ExaBGP e Python Flask para o módulo Flow Control BGP..."
+apt-get install -y exabgp python3-flask
+
+# 🔥 2.2 INSTALAÇÃO INDUSTRIAL DO RPKI COM CAPTURA DIRETA DE GPG (SEM INTERATIVIDADE)
 echo "[*] Sincronizando chaves e adicionando repositório oficial NLnet Labs..."
 mkdir -p /usr/share/keyrings
 rm -f /usr/share/keyrings/nlnetlabs-archive-keyring.gpg || true
@@ -214,6 +222,9 @@ ALTER TABLE mtr_advanced_hosts ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT t
 ALTER TABLE mtr_advanced_targets ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 ALTER TABLE mtr_advanced_probes ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;
 
+-- Garante coluna nova do Flow Control BGP em instâncias já existentes
+ALTER TABLE flow_settings ADD COLUMN IF NOT EXISTS bgp_blackhole_nexthop VARCHAR(50) DEFAULT '';
+
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO isp_client_app;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO isp_client_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO isp_client_app;
@@ -307,7 +318,7 @@ sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradi
 sed -E -i 's/^[[:space:]]*#[[:space:]]*sql([[:space:]]|$)/sql\1/g' /etc/freeradius/3.0/sites-enabled/inner-tunnel
 sed -i 's/log_auth = no/log_auth = yes/g' /etc/freeradius/3.0/radiusd.conf
 
-echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart freeradius" >> /etc/sudoers.d/www-data-freeradius
+echo "www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart freeradius" > /etc/sudoers.d/www-data-freeradius
 chmod 440 /etc/sudoers.d/www-data-freeradius
 
 # ====================================================================
@@ -344,6 +355,7 @@ minimal-responses: yes
 prefetch: yes
 prefetch-key: yes
 rrset-roundrobin: yes
+auto-trust-anchor-file: "/var/lib/unbound/root.key"
 logfile: "/var/log/unbound/unbound.log"
 verbosity: 2
 log-queries: yes
@@ -434,7 +446,6 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF2
-# ====================================================================
 
 # Implantação de Serviço Nativo do Coletor NetFlow (Híbrido v5/v9)
 echo "[*] Criando serviço nativo do Systemd para o Coletor de Tráfego..."
@@ -483,6 +494,87 @@ rm -f /var/www/html/isp-client/flow/data/templates.json || true
 chown -R www-data:www-data /var/www/html/isp-client/flow/data
 chmod -R 775 /var/www/html/isp-client/flow/data
 
+# ====================================================================
+# 🛡️ MÓDULO FLOW CONTROL BGP — ExaBGP + API Bridge (Anti-DDoS RTBH)
+# NENHUM IP, ASN ou community hardcoded — tudo configurado via painel
+# ====================================================================
+echo "[*] Configurando módulo Anti-DDoS BGP (ExaBGP + API Bridge)..."
+
+# Config inicial vazio — gerado dinamicamente pelo painel ao cadastrar peers
+mkdir -p /etc/exabgp
+cat << 'EXABGP_CONF' > /etc/exabgp/exabgp.conf
+# ExaBGP config — gerado automaticamente pelo ISP Client Portal
+# NAO edite manualmente. Use o painel em /flow_control/?tab=configs
+EXABGP_CONF
+
+# API Bridge: Flask que escreve no named pipe do ExaBGP
+cat << 'EXABGP_API' > /etc/exabgp/api.py
+#!/usr/bin/env python3
+import os, logging
+from flask import Flask, request, jsonify
+logging.basicConfig(level=logging.WARNING)
+app = Flask(__name__)
+PIPE = '/run/exabgp/exabgp.in'
+
+@app.route('/', methods=['POST'])
+def cmd():
+    c = request.form.get('command', '').strip()
+    if not c: return 'Error', 400
+    try:
+        fd = os.open(PIPE, os.O_WRONLY | os.O_NONBLOCK)
+        os.write(fd, (c + "\n").encode())
+        os.close(fd)
+        return "OK\n", 200
+    except FileNotFoundError:
+        return jsonify({'error': 'ExaBGP nao esta rodando (pipe nao existe)'}), 503
+    except BlockingIOError:
+        return jsonify({'error': 'Pipe cheio'}), 503
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/health')
+def health():
+    ok = os.path.exists(PIPE)
+    return jsonify({'status': 'ok' if ok else 'pipe_missing', 'pipe': ok})
+
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5001, use_reloader=False)
+EXABGP_API
+chmod +x /etc/exabgp/api.py
+
+# ExaBGP 4.2.x requer env var para aceitar execução como root
+mkdir -p /etc/systemd/system/exabgp.service.d/
+cat << 'EXABGP_OVR' > /etc/systemd/system/exabgp.service.d/override.conf
+[Service]
+User=root
+Group=root
+Environment=exabgp_daemon_user=root
+EXABGP_OVR
+
+# Serviço Flask API Bridge — sem dependência dura do ExaBGP (Restart=always)
+cat << 'EXABGP_SVC' > /etc/systemd/system/exabgp-api.service
+[Unit]
+Description=ExaBGP HTTP API Bridge
+After=network.target exabgp.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /etc/exabgp/api.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EXABGP_SVC
+
+# Permissões sudo para o PHP gerar/recarregar configuração BGP via painel
+cat << 'EXABGP_SUDO' > /etc/sudoers.d/www-data-exabgp
+www-data ALL=(ALL) NOPASSWD: /usr/bin/mv /tmp/exabgp.conf /etc/exabgp/exabgp.conf
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart exabgp
+www-data ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart exabgp-api
+EXABGP_SUDO
+chmod 440 /etc/sudoers.d/www-data-exabgp
+
 # Ajustar permissões globais e liberar o MTR
 chown -R www-data:www-data /var/www/html/isp-client
 chown -R www-data:www-data /var/lib/php/sessions
@@ -497,7 +589,6 @@ cat << 'EOF2' > /etc/systemd/system/php8.2-fpm.service.d/override.conf
 [Service]
 NoNewPrivileges=no
 EOF2
-systemctl daemon-reload
 
 # 🔄 CONFIGURAÇÃO DAS CRONS EM MODO DINÂMICO
 echo "[*] Configurando agendador de tarefas automatizadas minuto a minuto..."
@@ -520,8 +611,9 @@ find /var/www/html/isp-client/backups/ -name "*.txt" -type f -delete || true
 
 # Inicializando e acordando todos os serviços
 systemctl daemon-reload
-systemctl enable netflow-collector.service dns-metrics-collector.service visao-alerts.service unbound freeradius routinator krill
+systemctl enable netflow-collector.service dns-metrics-collector.service visao-alerts.service unbound freeradius routinator krill exabgp exabgp-api
 systemctl restart unbound dns-metrics-collector.service netflow-collector.service visao-alerts.service freeradius routinator krill
+systemctl start exabgp exabgp-api
 systemctl restart cron php8.2-fpm nginx
 systemctl enable cron php8.2-fpm nginx
 
@@ -536,5 +628,13 @@ echo "===================================================="
 echo "        INSTALAÇÃO CONCLUÍDA COM SUCESSO!           "
 echo "        LEMBRE-SE DE USAR: https://IP:8081"
 echo "===================================================="
+echo ""
+echo "⚠️  PRÓXIMO PASSO OBRIGATÓRIO — CONFIGURAR O FLOW CONTROL BGP:"
+echo "   1. Acesse o painel → Flow Control → Configurações BGP"
+echo "   2. Preencha: IP Local BGP, ASN, Next-hop RTBH, Community, URL API"
+echo "   3. Adicione o peer BGP (IP e ASN do seu roteador de borda)"
+echo "   4. Configure o roteador conforme o guia mikrotik_rtbh_config.md"
+echo "===================================================="
 
 rm -- "$0"
+
